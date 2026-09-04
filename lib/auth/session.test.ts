@@ -1,0 +1,70 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { eq } from "drizzle-orm";
+
+vi.mock("@clerk/nextjs/server", () => ({
+  auth: vi.fn(),
+  currentUser: vi.fn(),
+  clerkClient: vi.fn(),
+}));
+
+import { auth, clerkClient, currentUser } from "@clerk/nextjs/server";
+import { db } from "@/lib/db/client";
+import { tenants } from "@/lib/db/schema/tenant";
+import { users } from "@/lib/db/schema/user";
+import { resolveSessionContext } from "./session";
+
+const clerkOrgId = `org_test_${crypto.randomUUID()}`;
+const clerkUserId = `user_test_${crypto.randomUUID()}`;
+
+function mockAuth(overrides: Partial<Awaited<ReturnType<typeof auth>>> = {}) {
+  vi.mocked(auth).mockResolvedValue({
+    userId: clerkUserId,
+    orgId: clerkOrgId,
+    orgRole: "org:admin",
+    ...overrides,
+  } as unknown as Awaited<ReturnType<typeof auth>>);
+}
+
+beforeEach(() => {
+  mockAuth();
+  vi.mocked(currentUser).mockResolvedValue({
+    primaryEmailAddress: { emailAddress: "test@example.com" },
+    emailAddresses: [],
+    fullName: "Test User",
+  } as unknown as Awaited<ReturnType<typeof currentUser>>);
+  vi.mocked(clerkClient).mockResolvedValue({
+    organizations: {
+      getOrganization: vi.fn().mockResolvedValue({ name: "Test Org" }),
+    },
+  } as unknown as Awaited<ReturnType<typeof clerkClient>>);
+});
+
+afterEach(async () => {
+  await db.delete(tenants).where(eq(tenants.clerkOrgId, clerkOrgId));
+  await db.delete(users).where(eq(users.clerkUserId, clerkUserId));
+});
+
+describe("resolveSessionContext", () => {
+  it("creates tenant/user/membership rows on first sync and maps org:admin to admin", async () => {
+    const session = await resolveSessionContext();
+    expect(session?.role).toBe("admin");
+
+    const [tenant] = await db.select().from(tenants).where(eq(tenants.clerkOrgId, clerkOrgId));
+    expect(tenant?.name).toBe("Test Org");
+  });
+
+  it("is idempotent on repeated calls (no duplicate tenant rows)", async () => {
+    await resolveSessionContext();
+    await resolveSessionContext();
+
+    const rows = await db.select().from(tenants).where(eq(tenants.clerkOrgId, clerkOrgId));
+    expect(rows).toHaveLength(1);
+  });
+
+  it("returns null when there is no active organization", async () => {
+    mockAuth({ orgId: null } as unknown as Partial<Awaited<ReturnType<typeof auth>>>);
+
+    const session = await resolveSessionContext();
+    expect(session).toBeNull();
+  });
+});
