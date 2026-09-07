@@ -1,10 +1,7 @@
 import { sql } from "drizzle-orm";
-import type { PgTransaction } from "drizzle-orm/pg-core";
-import type { PostgresJsQueryResultHKT } from "drizzle-orm/postgres-js";
 import { db } from "./client";
-import type * as schema from "./schema";
 
-export type Tx = PgTransaction<PostgresJsQueryResultHKT, typeof schema>;
+export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /**
  * Every query against a tenant-owned table must run inside this wrapper.

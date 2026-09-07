@@ -5,6 +5,7 @@ import { tenants } from "@/lib/db/schema/tenant";
 import { users } from "@/lib/db/schema/user";
 import { memberships, type MembershipRole } from "@/lib/db/schema/membership";
 import { withTenantContext } from "@/lib/db/tenant-context";
+import { seedDefaultPipeline } from "@/lib/services/pipeline";
 
 export type SessionContext = {
   tenantId: string;
@@ -28,6 +29,10 @@ async function findOrCreateTenant(clerkOrgId: string): Promise<{ id: string }> {
     .values({ clerkOrgId, name: org.name })
     .onConflictDoUpdate({ target: tenants.clerkOrgId, set: { name: org.name } })
     .returning({ id: tenants.id });
+
+  // Reached only on first sight of this org (the `existing` check above
+  // returns early otherwise) — safe to seed the tenant's default pipeline.
+  await seedDefaultPipeline(created.id);
 
   return created;
 }

@@ -12,6 +12,7 @@ import { db } from "@/lib/db/client";
 import { tenants } from "@/lib/db/schema/tenant";
 import { users } from "@/lib/db/schema/user";
 import { resolveSessionContext } from "./session";
+import { listPipelineStages } from "@/lib/services/pipeline";
 
 const clerkOrgId = `org_test_${crypto.randomUUID()}`;
 const clerkUserId = `user_test_${crypto.randomUUID()}`;
@@ -51,6 +52,9 @@ describe("resolveSessionContext", () => {
 
     const [tenant] = await db.select().from(tenants).where(eq(tenants.clerkOrgId, clerkOrgId));
     expect(tenant?.name).toBe("Test Org");
+
+    const stages = await listPipelineStages(tenant.id);
+    expect(stages.map((s) => s.name)).toEqual(["Qualification", "Proposal", "Negotiation", "Won", "Lost"]);
   });
 
   it("is idempotent on repeated calls (no duplicate tenant rows)", async () => {
