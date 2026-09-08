@@ -12,6 +12,7 @@ import { EmptyState } from "@/components/empty-state";
 import { FieldError } from "@/components/field-error";
 import { PageHeader } from "@/components/page-header";
 import { QueryError } from "@/components/query-error";
+import { isNotFoundError } from "@/lib/trpc/is-not-found";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -54,10 +55,15 @@ export function ContactDetail({ contactId }: { contactId: string }) {
     );
   }
   if (contact.isError) {
+    if (isNotFoundError(contact.error)) {
+      return <EmptyState title="Contact not found" description="It may have been deleted." />;
+    }
     return <QueryError message="Couldn't load this contact." onRetry={() => contact.refetch()} />;
   }
   if (!contact.data) {
-    return <EmptyState title="Contact not found" description="It may have been deleted." />;
+    // Unreachable: contact.get throws NOT_FOUND for a missing row. Kept for
+    // TypeScript narrowing of contact.data below.
+    return null;
   }
 
   const data = contact.data;

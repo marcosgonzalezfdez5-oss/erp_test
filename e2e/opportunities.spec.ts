@@ -26,7 +26,13 @@ test("move an opportunity across pipeline stages and add an activity and task", 
     await expect(qualificationColumn.getByText("Jane Doe")).toHaveCount(0);
 
     await negotiationColumn.getByRole("link", { name: "Jane Doe" }).click();
+
+    // Add buttons stay disabled until their field has content (no blank/dupe rows).
+    await expect(page.getByRole("button", { name: "Add activity" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Add task" })).toBeDisabled();
+
     await page.getByLabel("Note").fill("Had a great call");
+    await expect(page.getByRole("button", { name: "Add activity" })).toBeEnabled();
     await page.getByRole("button", { name: "Add activity" }).click();
     await expect(page.getByText("Had a great call")).toBeVisible();
 

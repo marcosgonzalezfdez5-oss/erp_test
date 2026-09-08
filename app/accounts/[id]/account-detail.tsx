@@ -13,6 +13,7 @@ import { FieldError } from "@/components/field-error";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { QueryError } from "@/components/query-error";
+import { isNotFoundError } from "@/lib/trpc/is-not-found";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -61,10 +62,15 @@ export function AccountDetail({ accountId }: { accountId: string }) {
     );
   }
   if (account.isError) {
+    if (isNotFoundError(account.error)) {
+      return <EmptyState title="Account not found" description="It may have been deleted." />;
+    }
     return <QueryError message="Couldn't load this account." onRetry={() => account.refetch()} />;
   }
   if (!account.data) {
-    return <EmptyState title="Account not found" description="It may have been deleted." />;
+    // Unreachable: account.get throws NOT_FOUND for a missing row. Kept for
+    // TypeScript narrowing of account.data below.
+    return null;
   }
 
   return (

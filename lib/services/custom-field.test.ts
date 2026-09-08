@@ -300,3 +300,154 @@ describe("custom field service — values", () => {
     expect(values[0].value).toBeNull();
   });
 });
+
+describe("custom field service — required fields", () => {
+  it("rejects setting a required text field to an empty or blank value", async () => {
+    const { tenant, account } = await createTenantWithAccount("a");
+    const definition = await customFieldService.createDefinition(tenant.id, {
+      entityType: "account",
+      name: "Industry",
+      fieldType: "text",
+      required: true,
+    });
+
+    await expect(
+      customFieldService.setValue(tenant.id, { definitionId: definition.id, entityId: account.id, value: "" }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(
+      customFieldService.setValue(tenant.id, { definitionId: definition.id, entityId: account.id, value: "   " }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+    const values = await customFieldService.listValuesForEntity(tenant.id, "account", account.id);
+    expect(values[0].value).toBeNull();
+  });
+
+  it("accepts a real value for a required field and round-trips it", async () => {
+    const { tenant, account } = await createTenantWithAccount("a");
+    const definition = await customFieldService.createDefinition(tenant.id, {
+      entityType: "account",
+      name: "Industry",
+      fieldType: "text",
+      required: true,
+    });
+
+    await customFieldService.setValue(tenant.id, {
+      definitionId: definition.id,
+      entityId: account.id,
+      value: "Manufacturing",
+    });
+
+    const values = await customFieldService.listValuesForEntity(tenant.id, "account", account.id);
+    expect(values[0].value).toBe("Manufacturing");
+  });
+
+  it("treats an unchecked required boolean as unsatisfied", async () => {
+    const { tenant, account } = await createTenantWithAccount("a");
+    const definition = await customFieldService.createDefinition(tenant.id, {
+      entityType: "account",
+      name: "Contract signed",
+      fieldType: "boolean",
+      required: true,
+    });
+
+    await expect(
+      customFieldService.setValue(tenant.id, { definitionId: definition.id, entityId: account.id, value: false }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+    await customFieldService.setValue(tenant.id, {
+      definitionId: definition.id,
+      entityId: account.id,
+      value: true,
+    });
+    const values = await customFieldService.listValuesForEntity(tenant.id, "account", account.id);
+    expect(values[0].value).toBe(true);
+  });
+
+  it("still allows an empty value for a non-required field", async () => {
+    const { tenant, account } = await createTenantWithAccount("a");
+    const definition = await customFieldService.createDefinition(tenant.id, {
+      entityType: "account",
+      name: "Notes",
+      fieldType: "text",
+      required: false,
+    });
+
+    await customFieldService.setValue(tenant.id, { definitionId: definition.id, entityId: account.id, value: "" });
+    const values = await customFieldService.listValuesForEntity(tenant.id, "account", account.id);
+    expect(values[0].value).toBe("");
+  });
+
+  it("refuses to clear a required field but leaves the value intact", async () => {
+    const { tenant, account } = await createTenantWithAccount("a");
+    const definition = await customFieldService.createDefinition(tenant.id, {
+      entityType: "account",
+      name: "Industry",
+      fieldType: "text",
+      required: true,
+    });
+    await customFieldService.setValue(tenant.id, {
+      definitionId: definition.id,
+      entityId: account.id,
+      value: "Manufacturing",
+    });
+
+    await expect(
+      customFieldService.clearValue(tenant.id, { definitionId: definition.id, entityId: account.id }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+    const values = await customFieldService.listValuesForEntity(tenant.id, "account", account.id);
+    expect(values[0].value).toBe("Manufacturing");
+  });
+
+  it("still no-ops clearing a non-required field", async () => {
+    const { tenant, account } = await createTenantWithAccount("a");
+    const definition = await customFieldService.createDefinition(tenant.id, {
+      entityType: "account",
+      name: "Notes",
+      fieldType: "text",
+      required: false,
+    });
+    await customFieldService.setValue(tenant.id, { definitionId: definition.id, entityId: account.id, value: "v1" });
+
+    await customFieldService.clearValue(tenant.id, { definitionId: definition.id, entityId: account.id });
+    await customFieldService.clearValue(tenant.id, { definitionId: definition.id, entityId: account.id });
+
+    const values = await customFieldService.listValuesForEntity(tenant.id, "account", account.id);
+    expect(values[0].value).toBeNull();
+  });
+
+  it("does not let another tenant's clearValue touch a required field, and does not throw", async () => {
+    const { tenant: tenantA, account } = await createTenantWithAccount("a");
+    const { tenant: tenantB } = await createTenantWithAccount("b");
+    const definitionA = await customFieldService.createDefinition(tenantA.id, {
+      entityType: "account",
+      name: "Industry",
+      fieldType: "text",
+      required: true,
+    });
+    await customFieldService.setValue(tenantA.id, {
+      definitionId: definitionA.id,
+      entityId: account.id,
+      value: "Manufacturing",
+    });
+
+    await customFieldService.clearValue(tenantB.id, { definitionId: definitionA.id, entityId: account.id });
+
+    const values = await customFieldService.listValuesForEntity(tenantA.id, "account", account.id);
+    expect(values[0].value).toBe("Manufacturing");
+  });
+
+  it("enforces required fields on opportunity-scoped definitions too", async () => {
+    const { tenant, opportunity } = await createTenantWithOpportunity("a");
+    const definition = await customFieldService.createDefinition(tenant.id, {
+      entityType: "opportunity",
+      name: "Budget",
+      fieldType: "text",
+      required: true,
+    });
+
+    await expect(
+      customFieldService.setValue(tenant.id, { definitionId: definition.id, entityId: opportunity.id, value: "" }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+});

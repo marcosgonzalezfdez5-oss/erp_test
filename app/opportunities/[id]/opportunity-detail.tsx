@@ -14,6 +14,7 @@ import { Money } from "@/components/money";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { QueryError } from "@/components/query-error";
+import { isNotFoundError } from "@/lib/trpc/is-not-found";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -97,10 +98,16 @@ export function OpportunityDetail({ opportunityId }: { opportunityId: string }) 
     );
   }
   if (opportunity.isError) {
+    if (isNotFoundError(opportunity.error)) {
+      return <EmptyState title="Opportunity not found" description="It may have been deleted or moved." />;
+    }
     return <QueryError message="Couldn't load this opportunity." onRetry={() => opportunity.refetch()} />;
   }
   if (!opportunity.data) {
-    return <EmptyState title="Opportunity not found" description="It may have been deleted or moved." />;
+    // Unreachable: opportunity.get throws NOT_FOUND for a missing row. Kept so
+    // TypeScript narrows opportunity.data below (the guards above are on
+    // isLoading/isError, not the status discriminant).
+    return null;
   }
 
   const savedValue = opportunity.data.value ?? "";
@@ -170,6 +177,9 @@ export function OpportunityDetail({ opportunityId }: { opportunityId: string }) 
       <div className="flex items-end gap-2">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="deal-value">Deal value</Label>
+          {/* The raw numeric string is intentional here — a type=number input
+              may render it with a locale decimal separator, but the canonical
+              formatted amount is the <Money> hint shown beside the field. */}
           <Input
             id="deal-value"
             type="number"
@@ -237,7 +247,9 @@ export function OpportunityDetail({ opportunityId }: { opportunityId: string }) 
             />
             <FieldError message={noteError} />
           </div>
-          <Button type="submit">Add activity</Button>
+          <Button type="submit" disabled={!note.trim() || createActivity.isPending}>
+            Add activity
+          </Button>
         </form>
       </section>
 
@@ -281,7 +293,9 @@ export function OpportunityDetail({ opportunityId }: { opportunityId: string }) 
             />
             <FieldError message={taskError} />
           </div>
-          <Button type="submit">Add task</Button>
+          <Button type="submit" disabled={!taskTitle.trim() || createTask.isPending}>
+            Add task
+          </Button>
         </form>
       </section>
 

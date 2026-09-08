@@ -7,6 +7,7 @@ import { EmptyState } from "@/components/empty-state";
 import { Money } from "@/components/money";
 import { PageHeader } from "@/components/page-header";
 import { QueryError } from "@/components/query-error";
+import { isNotFoundError } from "@/lib/trpc/is-not-found";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export function OrderDetail({ orderId }: { orderId: string }) {
@@ -30,10 +31,15 @@ export function OrderDetail({ orderId }: { orderId: string }) {
     );
   }
   if (order.isError) {
+    if (isNotFoundError(order.error)) {
+      return <EmptyState title="Order not found" description="It may have been deleted." />;
+    }
     return <QueryError message="Couldn't load this order." onRetry={() => order.refetch()} />;
   }
   if (!order.data) {
-    return <EmptyState title="Order not found" description="It may not exist." />;
+    // Unreachable: order.get throws NOT_FOUND for a missing row. Kept for
+    // TypeScript narrowing of order.data below.
+    return null;
   }
 
   return (

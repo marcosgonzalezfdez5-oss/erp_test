@@ -52,6 +52,28 @@ describe("quote calculations (pure)", () => {
   });
 });
 
+describe("quote line-item quantity bounds", () => {
+  const base = { quoteId: crypto.randomUUID(), productId: crypto.randomUUID() };
+
+  it("accepts a quantity up to 1,000,000", () => {
+    expect(quoteService.addLineItemInput.safeParse({ ...base, quantity: 1 }).success).toBe(true);
+    expect(quoteService.addLineItemInput.safeParse({ ...base, quantity: 1_000_000 }).success).toBe(true);
+  });
+
+  it("rejects a quantity above 1,000,000 on add and on update", () => {
+    expect(quoteService.addLineItemInput.safeParse({ ...base, quantity: 1_000_001 }).success).toBe(false);
+    expect(
+      quoteService.updateLineItemQuantityInput.safeParse({ id: crypto.randomUUID(), quantity: 1_000_001 }).success,
+    ).toBe(false);
+  });
+
+  it("still rejects zero, negative, and non-integer quantities", () => {
+    for (const quantity of [0, -1, 2.5]) {
+      expect(quoteService.addLineItemInput.safeParse({ ...base, quantity }).success).toBe(false);
+    }
+  });
+});
+
 describe("quote service", () => {
   it("creates a quote, adds line items snapshotting product price, and computes the total", async () => {
     const { tenant, opportunity } = await createTenantWithOpportunity("a");

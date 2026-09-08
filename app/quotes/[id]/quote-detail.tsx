@@ -10,6 +10,7 @@ import { EmptyState } from "@/components/empty-state";
 import { formatMoney, Money } from "@/components/money";
 import { PageHeader } from "@/components/page-header";
 import { QueryError } from "@/components/query-error";
+import { isNotFoundError } from "@/lib/trpc/is-not-found";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -70,10 +71,15 @@ export function QuoteDetail({ quoteId }: { quoteId: string }) {
     );
   }
   if (quote.isError) {
+    if (isNotFoundError(quote.error)) {
+      return <EmptyState title="Quote not found" description="It may have been deleted." />;
+    }
     return <QueryError message="Couldn't load this quote." onRetry={() => quote.refetch()} />;
   }
   if (!quote.data) {
-    return <EmptyState title="Quote not found" description="It may have been deleted." />;
+    // Unreachable: quote.get throws NOT_FOUND for a missing row. Kept for
+    // TypeScript narrowing of quote.data below.
+    return null;
   }
 
   return (
@@ -120,6 +126,7 @@ export function QuoteDetail({ quoteId }: { quoteId: string }) {
                       <Input
                         type="number"
                         min="1"
+                        max="1000000"
                         step="1"
                         className="w-16"
                         aria-label={`Quantity for ${item.productName}`}
@@ -137,6 +144,10 @@ export function QuoteDetail({ quoteId }: { quoteId: string }) {
                           onClick={() => {
                             const parsed = Number(draft);
                             if (!Number.isInteger(parsed) || parsed < 1) return;
+                            if (parsed > 1_000_000) {
+                              toast.error("Quantity can't exceed 1,000,000.");
+                              return;
+                            }
                             updateQuantity.mutate({ id: item.id, quantity: parsed });
                           }}
                         >
@@ -182,6 +193,10 @@ export function QuoteDetail({ quoteId }: { quoteId: string }) {
           e.preventDefault();
           const parsedQuantity = Number(quantity);
           if (!productId || !Number.isInteger(parsedQuantity) || parsedQuantity < 1) return;
+          if (parsedQuantity > 1_000_000) {
+            toast.error("Quantity can't exceed 1,000,000.");
+            return;
+          }
           addLineItem.mutate({ quoteId, productId, quantity: parsedQuantity });
           setQuantity("1");
         }}
@@ -190,7 +205,7 @@ export function QuoteDetail({ quoteId }: { quoteId: string }) {
           <Label htmlFor="quote-product">Product</Label>
           <select
             id="quote-product"
-            className="h-8 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+            className="h-8 rounded-lg border border-input bg-background px-2.5 py-1 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
             value={productId}
             onChange={(e) => setProductId(e.target.value)}
           >
@@ -210,6 +225,7 @@ export function QuoteDetail({ quoteId }: { quoteId: string }) {
             id="quote-quantity"
             type="number"
             min="1"
+            max="1000000"
             step="1"
             value={quantity}
             onChange={(e) => setQuantity(e.target.value)}

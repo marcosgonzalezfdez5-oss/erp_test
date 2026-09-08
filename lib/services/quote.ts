@@ -40,15 +40,20 @@ export const createQuoteInput = z.object({
   opportunityId: z.string().uuid(),
 });
 
+// Upper bound keeps a single line total well inside the numeric(12,2) money
+// ceiling and below the quantity column's int4 range — without a cap, a
+// pasted/fat-fingered value surfaces as a raw DB error instead of validation.
+export const lineItemQuantity = z.number().int().positive().max(1_000_000);
+
 export const addLineItemInput = z.object({
   quoteId: z.string().uuid(),
   productId: z.string().uuid(),
-  quantity: z.number().int().positive(),
+  quantity: lineItemQuantity,
 });
 
 export const updateLineItemQuantityInput = z.object({
   id: z.string().uuid(),
-  quantity: z.number().int().positive(),
+  quantity: lineItemQuantity,
 });
 
 export const listQuotesInput = z.object({

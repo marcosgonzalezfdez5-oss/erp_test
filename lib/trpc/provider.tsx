@@ -13,7 +13,23 @@ function getBaseUrl() {
 }
 
 export function TRPCProvider({ children }: { children: React.ReactNode }) {
-  const [queryClient] = useState(() => new QueryClient());
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            // Don't burn ~7s retrying a 4xx (missing record, malformed-uuid
+            // param) — those won't succeed on retry. Transient/5xx/network
+            // errors still get one retry.
+            retry: (failureCount, error) => {
+              const status = (error as { data?: { httpStatus?: number } } | null)?.data?.httpStatus;
+              if (typeof status === "number" && status >= 400 && status < 500) return false;
+              return failureCount < 1;
+            },
+          },
+        },
+      }),
+  );
   const [trpcClient] = useState(() =>
     trpc.createClient({
       links: [

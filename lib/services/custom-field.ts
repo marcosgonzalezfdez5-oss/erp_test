@@ -102,6 +102,23 @@ export async function updateDefinition(tenantId: string, input: z.infer<typeof u
 // value is genuinely dynamic (its shape depends on the definition's
 // fieldType, which is only known at request time) — validated at runtime
 // below rather than by the static Zod input schema. See CLAUDE.md §11.
+// Whether a (type-validated) value counts as "not provided" for a required
+// field. text: only "" is empty (validateValue already trims). boolean: an
+// unchecked box (anything but true) is treated as unsatisfied. number/date/
+// select can't survive validateValue while empty, so they're never empty here.
+function isEmptyValue(fieldType: FieldType, value: unknown): boolean {
+  switch (fieldType) {
+    case "text":
+      return value === "";
+    case "boolean":
+      return value !== true;
+    case "number":
+    case "date":
+    case "select":
+      return false;
+  }
+}
+
 function validateValue(fieldType: FieldType, options: string[] | null, value: unknown): unknown {
   switch (fieldType) {
     case "text":
@@ -148,6 +165,10 @@ export async function setValue(tenantId: string, input: z.infer<typeof setValueI
       throw new TRPCError({ code: "BAD_REQUEST", message: `Invalid value for field "${definition.name}"` });
     }
 
+    if (definition.required && isEmptyValue(definition.fieldType, validatedValue)) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: `The field "${definition.name}" is required.` });
+    }
+
     const [existing] = await tx
       .select({ id: customFieldValues.id })
       .from(customFieldValues)
@@ -183,8 +204,23 @@ export const clearValueInput = z.object({
 
 // Idempotent: clearing a value that was never set is a no-op, not an error.
 export async function clearValue(tenantId: string, input: z.infer<typeof clearValueInput>) {
-  await withTenantContext(tenantId, (tx) =>
-    tx
+  await withTenantContext(tenantId, async (tx) => {
+    // Optional-chained: a definition the caller's tenant can't see falls
+    // through to the (tenant-scoped, no-op) delete — never a NOT_FOUND.
+    const [definition] = await tx
+      .select({ name: customFieldDefinitions.name, required: customFieldDefinitions.required })
+      .from(customFieldDefinitions)
+      .where(
+        and(eq(customFieldDefinitions.tenantId, tenantId), eq(customFieldDefinitions.id, input.definitionId)),
+      );
+    if (definition?.required) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: `Cannot clear the required field "${definition.name}".`,
+      });
+    }
+
+    await tx
       .delete(customFieldValues)
       .where(
         and(
@@ -192,8 +228,8 @@ export async function clearValue(tenantId: string, input: z.infer<typeof clearVa
           eq(customFieldValues.definitionId, input.definitionId),
           eq(customFieldValues.entityId, input.entityId),
         ),
-      ),
-  );
+      );
+  });
 }
 
 export async function listValuesForEntity(tenantId: string, entityType: EntityType, entityId: string) {
