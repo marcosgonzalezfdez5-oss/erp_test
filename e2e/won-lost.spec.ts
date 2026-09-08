@@ -21,6 +21,14 @@ test("mark an opportunity Won and see the resulting order", async ({ page }) => 
     await page.getByRole("link", { name: "Jane Doe" }).click();
     await expect(page.getByTestId("order-banner")).toBeVisible();
     await expect(page.getByTestId("order-banner")).toContainText("Order created");
+
+    await page.getByTestId("order-banner").click();
+    await expect(page).toHaveURL(/\/orders\//);
+    await expect(page.getByRole("heading", { name: "Order" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Jane Doe" })).toBeVisible();
+
+    await page.getByRole("link", { name: "Back to opportunity" }).click();
+    await expect(page.getByRole("heading", { name: "Jane Doe" })).toBeVisible();
   } finally {
     await deleteTestUser(user.id);
   }

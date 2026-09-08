@@ -17,6 +17,10 @@ export const customFieldRouter = router({
     .input(z.object({ id: z.string().uuid() }))
     .mutation(({ ctx, input }) => customFieldService.deleteDefinition(ctx.session.tenantId, input.id)),
 
+  updateDefinition: tenantProcedure
+    .input(customFieldService.updateDefinitionInput)
+    .mutation(({ ctx, input }) => customFieldService.updateDefinition(ctx.session.tenantId, input)),
+
   listValuesForEntity: tenantProcedure
     .input(z.object({ entityType: z.enum(customFieldEntityTypeEnum.enumValues), entityId: z.string().uuid() }))
     .query(({ ctx, input }) =>
@@ -26,4 +30,8 @@ export const customFieldRouter = router({
   setValue: tenantProcedure
     .input(customFieldService.setValueInput)
     .mutation(({ ctx, input }) => customFieldService.setValue(ctx.session.tenantId, input)),
+
+  clearValue: tenantProcedure
+    .input(customFieldService.clearValueInput)
+    .mutation(({ ctx, input }) => customFieldService.clearValue(ctx.session.tenantId, input)),
 });

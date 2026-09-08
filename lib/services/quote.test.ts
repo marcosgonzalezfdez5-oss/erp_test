@@ -127,3 +127,36 @@ describe("quote service", () => {
     await expect(quoteService.deleteQuote(tenantB.id, quote.id)).rejects.toThrow(TRPCError);
   });
 });
+
+describe("quote service — list", () => {
+  it("lists quotes with the opportunity name and computed total, filters by search, and paginates", async () => {
+    const { tenant, opportunity } = await createTenantWithOpportunity("a");
+    const widget = await productService.createProduct(tenant.id, { name: "Widget", unitPrice: 10 });
+
+    const quote = await quoteService.createQuote(tenant.id, { opportunityId: opportunity.id });
+    await quoteService.addLineItem(tenant.id, { quoteId: quote.id, productId: widget.id, quantity: 3 });
+
+    const all = await quoteService.listQuotes(tenant.id);
+    expect(all.total).toBe(1);
+    expect(all.items).toEqual([
+      expect.objectContaining({ id: quote.id, opportunityName: opportunity.name, total: "30.00" }),
+    ]);
+
+    const matched = await quoteService.listQuotes(tenant.id, { page: 1, search: opportunity.name.slice(0, 3) });
+    expect(matched.total).toBe(1);
+
+    const unmatched = await quoteService.listQuotes(tenant.id, { page: 1, search: "no such opportunity" });
+    expect(unmatched.total).toBe(0);
+    expect(unmatched.items).toHaveLength(0);
+  });
+
+  it("scopes listQuotes to the requesting tenant", async () => {
+    const { tenant: tenantA, opportunity: opportunityA } = await createTenantWithOpportunity("a");
+    const { tenant: tenantB } = await createTenantWithOpportunity("b");
+    await quoteService.createQuote(tenantA.id, { opportunityId: opportunityA.id });
+
+    const listedByB = await quoteService.listQuotes(tenantB.id);
+    expect(listedByB.items).toHaveLength(0);
+    expect(listedByB.total).toBe(0);
+  });
+});

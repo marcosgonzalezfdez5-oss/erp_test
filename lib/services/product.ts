@@ -1,8 +1,10 @@
 import { TRPCError } from "@trpc/server";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, count, eq, ilike, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { products } from "@/lib/db/schema/product";
 import { withTenantContext } from "@/lib/db/tenant-context";
+
+export const PAGE_SIZE = 20;
 
 const money = z.number().nonnegative().multipleOf(0.01);
 
@@ -19,14 +21,36 @@ export const updateProductInput = z.object({
   unitPrice: money,
 });
 
-export function listProducts(tenantId: string) {
-  return withTenantContext(tenantId, (tx) =>
-    tx
-      .select()
-      .from(products)
-      .where(and(eq(products.tenantId, tenantId), isNull(products.deletedAt)))
-      .orderBy(products.name),
-  );
+export const listProductsInput = z.object({
+  page: z.number().int().min(1).default(1),
+  // Overridable so pickers that need the (near-)full catalog — e.g. the quote
+  // line-item product select — aren't capped at the list page's default size.
+  pageSize: z.number().int().min(1).max(200).default(PAGE_SIZE),
+  search: z.string().trim().max(200).default(""),
+});
+
+export async function listProducts(tenantId: string, rawInput: z.input<typeof listProductsInput> = {}) {
+  const input = listProductsInput.parse(rawInput);
+  return withTenantContext(tenantId, async (tx) => {
+    const conditions = [eq(products.tenantId, tenantId), isNull(products.deletedAt)];
+    if (input.search) {
+      conditions.push(ilike(products.name, `%${input.search}%`));
+    }
+    const where = and(...conditions);
+
+    const [items, [{ total }]] = await Promise.all([
+      tx
+        .select()
+        .from(products)
+        .where(where)
+        .orderBy(products.name)
+        .limit(input.pageSize)
+        .offset((input.page - 1) * input.pageSize),
+      tx.select({ total: count() }).from(products).where(where),
+    ]);
+
+    return { items, total };
+  });
 }
 
 export async function getProduct(tenantId: string, id: string) {

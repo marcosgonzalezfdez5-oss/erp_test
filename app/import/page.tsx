@@ -1,5 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
+import { PageHeader } from "@/components/page-header";
 import { ImportWizard } from "./import-wizard";
 
 export default async function ImportPage() {
@@ -10,8 +11,8 @@ export default async function ImportPage() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-12">
-      <h1 className="text-xl font-semibold">Import from CSV</h1>
+    <div className="mx-auto flex w-full max-w-3xl flex-col">
+      <PageHeader title="Import from CSV" />
       <ImportWizard />
     </div>
   );

@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { auth, clerkClient, currentUser } from "@clerk/nextjs/server";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
@@ -80,8 +81,14 @@ async function findOrCreateMembership(
  * context, syncing rows into `tenants`/`users`/`memberships` on first sight.
  * Returns null when there is no signed-in user or no active organization
  * (Clerk org == our Tenant — see CLAUDE.md §7).
+ *
+ * Wrapped in React's `cache()` so multiple Server Components in the same
+ * request (e.g. the app shell resolving the role for nav + a page resolving
+ * it again for its own use) share one resolution instead of racing — two
+ * concurrent first-sight calls for a brand-new org would otherwise both see
+ * "no tenant yet" and both run `seedDefaultPipeline`, duplicating stages.
  */
-export async function resolveSessionContext(): Promise<SessionContext | null> {
+export const resolveSessionContext = cache(async (): Promise<SessionContext | null> => {
   const { userId: clerkUserId, orgId: clerkOrgId, orgRole } = await auth();
   if (!clerkUserId || !clerkOrgId) return null;
 
@@ -90,4 +97,4 @@ export async function resolveSessionContext(): Promise<SessionContext | null> {
   const role = await findOrCreateMembership(tenant.id, user.id, mapClerkOrgRole(orgRole));
 
   return { tenantId: tenant.id, userId: user.id, role };
-}
+});

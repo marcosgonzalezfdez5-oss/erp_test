@@ -2,8 +2,12 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { toast } from "sonner";
 import { trpc } from "@/lib/trpc/client";
 import { NEW_CUSTOM_FIELD_TARGET, TARGET_FIELDS, type ImportEntityType } from "@/lib/csv";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 const SKIP_TARGET = "";
 
@@ -21,6 +25,9 @@ const entityTypeOptions: { value: ImportEntityType; label: string; recordLink: s
   { value: "lead", label: "Leads", recordLink: "/leads" },
 ];
 
+const selectClassName =
+  "h-8 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
+
 export function ImportWizard() {
   const [entityType, setEntityType] = useState<ImportEntityType>("account");
   const [csvText, setCsvText] = useState<string | null>(null);
@@ -34,8 +41,11 @@ export function ImportWizard() {
       }
       setMapping(next);
     },
+    onError: (error) => toast.error(error.message),
   });
-  const run = trpc.csvImport.run.useMutation();
+  const run = trpc.csvImport.run.useMutation({
+    onError: (error) => toast.error(error.message),
+  });
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -54,10 +64,11 @@ export function ImportWizard() {
 
   return (
     <div className="flex flex-col gap-6">
-      <label className="flex flex-col gap-1 text-sm">
-        What are you importing?
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="import-entity-type">What are you importing?</Label>
         <select
-          className="rounded border border-black/10 px-3 py-2 dark:border-white/20 dark:bg-black"
+          id="import-entity-type"
+          className={selectClassName}
           value={entityType}
           onChange={(e) => {
             setEntityType(e.target.value as ImportEntityType);
@@ -73,39 +84,45 @@ export function ImportWizard() {
             </option>
           ))}
         </select>
-      </label>
+      </div>
 
-      <label className="flex flex-col gap-1 text-sm">
-        CSV file
-        <input type="file" accept=".csv,text/csv" onChange={handleFileChange} />
-      </label>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="import-csv-file">CSV file</Label>
+        <input
+          id="import-csv-file"
+          type="file"
+          accept=".csv,text/csv"
+          onChange={handleFileChange}
+          className="text-sm text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-secondary-foreground hover:file:bg-secondary/80"
+        />
+      </div>
 
-      {analyze.isPending && <p className="text-sm text-zinc-500">Analyzing columns…</p>}
+      {analyze.isPending && <p className="text-sm text-muted-foreground">Analyzing columns…</p>}
 
       {analyze.data && !analyze.data.aiAvailable && (
-        <p className="text-sm text-zinc-500">
-          AI suggestion unavailable — map the columns below manually.
-        </p>
+        <p className="text-sm text-muted-foreground">AI suggestion unavailable — map the columns below manually.</p>
       )}
 
       {analyze.data && (
         <div className="flex flex-col gap-3">
-          <p className="text-sm text-zinc-500">{analyze.data.rowCount} rows found. Review the mapping below:</p>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-zinc-500">
-                <th className="pb-2">Column</th>
-                <th className="pb-2">Maps to</th>
-              </tr>
-            </thead>
-            <tbody>
+          <p className="text-sm text-muted-foreground">
+            {analyze.data.rowCount} rows found. Review the mapping below:
+          </p>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Column</TableHead>
+                <TableHead>Maps to</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {analyze.data.headers.map((column) => (
-                <tr key={column}>
-                  <td className="py-1">{column}</td>
-                  <td className="py-1">
+                <TableRow key={column}>
+                  <TableCell>{column}</TableCell>
+                  <TableCell>
                     <select
                       aria-label={`Map ${column} to`}
-                      className="rounded border border-black/10 px-2 py-1 dark:border-white/20 dark:bg-black"
+                      className={selectClassName}
                       value={mapping[column] ?? SKIP_TARGET}
                       onChange={(e) => setMapping((prev) => ({ ...prev, [column]: e.target.value }))}
                     >
@@ -115,15 +132,15 @@ export function ImportWizard() {
                         </option>
                       ))}
                     </select>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
 
-          <button
+          <Button
             type="button"
-            className="w-fit rounded bg-foreground px-4 py-2 text-background disabled:opacity-50"
+            className="w-fit"
             disabled={run.isPending || !csvText}
             onClick={() => {
               if (!csvText) return;
@@ -137,17 +154,17 @@ export function ImportWizard() {
             }}
           >
             Import {analyze.data.rowCount} rows
-          </button>
+          </Button>
         </div>
       )}
 
       {run.data && (
-        <div className="flex flex-col gap-2 rounded border border-black/10 p-3 text-sm dark:border-white/20">
+        <div className="flex flex-col gap-2 rounded-md border bg-card p-3 text-sm">
           <p data-testid="import-summary">
             Imported {run.data.imported} of {analyze.data?.rowCount ?? run.data.imported + run.data.failed.length}.
           </p>
           {run.data.failed.length > 0 && (
-            <ul className="flex flex-col gap-1 text-zinc-500">
+            <ul className="flex flex-col gap-1 text-muted-foreground">
               {run.data.failed.map((failure) => (
                 <li key={failure.row}>
                   Row {failure.row}: {failure.error}
@@ -157,7 +174,7 @@ export function ImportWizard() {
           )}
           <Link
             href={entityTypeOptions.find((o) => o.value === entityType)!.recordLink}
-            className="w-fit underline"
+            className="w-fit text-primary hover:underline"
           >
             View {entityType === "account" ? "accounts" : "leads"}
           </Link>

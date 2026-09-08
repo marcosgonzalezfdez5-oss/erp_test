@@ -1,5 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
+import { PageHeader } from "@/components/page-header";
 import { OpportunitiesBoard } from "./opportunities-list";
 
 export default async function OpportunitiesPage() {
@@ -10,8 +11,8 @@ export default async function OpportunitiesPage() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-12">
-      <h1 className="text-xl font-semibold">Opportunities</h1>
+    <div className="flex flex-col">
+      <PageHeader title="Opportunities" />
       <OpportunitiesBoard />
     </div>
   );

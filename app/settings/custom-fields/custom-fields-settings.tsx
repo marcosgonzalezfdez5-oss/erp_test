@@ -1,7 +1,19 @@
 "use client";
 
 import { useState } from "react";
+import { Pencil, SlidersHorizontal } from "lucide-react";
+import { toast } from "sonner";
 import { trpc } from "@/lib/trpc/client";
+import { EditDialog } from "@/components/edit-dialog";
+import { EmptyState } from "@/components/empty-state";
+import { FieldError } from "@/components/field-error";
+import { QueryError } from "@/components/query-error";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 
 type EntityType = "account" | "opportunity";
 type FieldType = "text" | "number" | "date" | "select" | "boolean";
@@ -24,16 +36,35 @@ export function CustomFieldsSettings() {
   const [entityType, setEntityType] = useState<EntityType>("account");
   const definitions = trpc.customField.listDefinitions.useQuery({ entityType });
   const createDefinition = trpc.customField.createDefinition.useMutation({
-    onSuccess: () => utils.customField.listDefinitions.invalidate({ entityType }),
+    onSuccess: () => {
+      utils.customField.listDefinitions.invalidate({ entityType });
+      toast.success("Field added");
+    },
+    onError: (error) => toast.error(error.message),
   });
   const deleteDefinition = trpc.customField.deleteDefinition.useMutation({
-    onSuccess: () => utils.customField.listDefinitions.invalidate({ entityType }),
+    onSuccess: () => {
+      utils.customField.listDefinitions.invalidate({ entityType });
+      toast.success("Field removed");
+    },
+    onError: (error) => toast.error(error.message),
+  });
+  const updateDefinition = trpc.customField.updateDefinition.useMutation({
+    onSuccess: () => {
+      utils.customField.listDefinitions.invalidate({ entityType });
+      setEditingId(null);
+      toast.success("Field renamed");
+    },
+    onError: (error) => toast.error(error.message),
   });
 
   const [name, setName] = useState("");
   const [fieldType, setFieldType] = useState<FieldType>("text");
   const [optionsText, setOptionsText] = useState("");
   const [required, setRequired] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
 
   function resetForm() {
     setName("");
@@ -44,77 +75,142 @@ export function CustomFieldsSettings() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex gap-4 text-sm">
+      <div className="flex gap-1 border-b">
         {entityTypes.map((entity) => (
           <button
             key={entity.value}
             type="button"
             onClick={() => setEntityType(entity.value)}
-            className={
+            className={cn(
+              "-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors",
               entity.value === entityType
-                ? "underline decoration-2 underline-offset-4"
-                : "text-zinc-500 hover:text-foreground"
-            }
+                ? "border-primary text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground",
+            )}
           >
             {entity.label}
           </button>
         ))}
       </div>
 
-      <ul className="flex flex-col gap-2">
-        {definitions.data?.map((definition) => (
-          <li key={definition.id} className="flex items-center justify-between text-sm">
-            <span>
-              {definition.name}{" "}
-              <span className="text-zinc-500">
-                ({definition.fieldType}
-                {definition.required ? ", required" : ""})
-              </span>
-            </span>
-            <button
-              type="button"
-              className="text-zinc-500 underline"
-              onClick={() => deleteDefinition.mutate({ id: definition.id })}
+      {definitions.isLoading && (
+        <div className="flex flex-col gap-2">
+          <Skeleton className="h-6 w-full" />
+          <Skeleton className="h-6 w-full" />
+        </div>
+      )}
+
+      {definitions.isError && (
+        <QueryError message="Couldn't load custom fields." onRetry={() => definitions.refetch()} />
+      )}
+
+      {definitions.data?.length === 0 && (
+        <EmptyState
+          icon={SlidersHorizontal}
+          title="No custom fields yet"
+          description="Add a field below to start capturing tenant-specific data."
+        />
+      )}
+
+      {definitions.data && definitions.data.length > 0 && (
+        <ul className="flex flex-col gap-2">
+          {definitions.data.map((definition) => (
+            <li
+              key={definition.id}
+              className="flex items-center justify-between rounded-md border bg-card px-3 py-2 text-sm"
             >
-              Remove
-            </button>
-          </li>
-        ))}
-        {definitions.data?.length === 0 && <li className="text-sm text-zinc-500">No custom fields yet.</li>}
-      </ul>
+              <span>
+                {definition.name}{" "}
+                <span className="text-muted-foreground">
+                  ({definition.fieldType}
+                  {definition.required ? ", required" : ""})
+                </span>
+              </span>
+              <div className="flex gap-1">
+                <EditDialog
+                  trigger={
+                    <Button type="button" variant="ghost" size="icon-sm" aria-label={`Rename ${definition.name}`}>
+                      <Pencil />
+                    </Button>
+                  }
+                  title="Rename field"
+                  open={editingId === definition.id}
+                  onOpenChange={(open) => {
+                    setEditingId(open ? definition.id : null);
+                    if (open) setEditName(definition.name);
+                  }}
+                  pending={updateDefinition.isPending}
+                  onSubmit={() => {
+                    if (!editName.trim()) return;
+                    updateDefinition.mutate({ id: definition.id, name: editName });
+                  }}
+                >
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor={`edit-field-name-${definition.id}`}>Field name</Label>
+                    <Input
+                      id={`edit-field-name-${definition.id}`}
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                    />
+                  </div>
+                </EditDialog>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => deleteDefinition.mutate({ id: definition.id })}
+                >
+                  Remove
+                </Button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
 
       <form
         className="flex flex-col gap-3"
         onSubmit={(e) => {
           e.preventDefault();
-          if (!name.trim()) return;
+          if (!name.trim()) {
+            setFormError("Enter a field name.");
+            return;
+          }
 
           if (fieldType === "select") {
             const options = optionsText
               .split(",")
               .map((option) => option.trim())
               .filter(Boolean);
-            if (options.length === 0) return;
+            if (options.length === 0) {
+              setFormError("Enter at least one option.");
+              return;
+            }
             createDefinition.mutate({ entityType, name, fieldType: "select", options, required });
           } else {
             createDefinition.mutate({ entityType, name, fieldType, required });
           }
+          setFormError(null);
           resetForm();
         }}
       >
-        <label className="flex flex-col gap-1 text-sm">
-          Field name
-          <input
-            className="rounded border border-black/10 px-3 py-2 dark:border-white/20"
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="field-name">Field name</Label>
+          <Input
+            id="field-name"
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => {
+              setName(e.target.value);
+              setFormError(null);
+            }}
           />
-        </label>
+        </div>
 
-        <label className="flex flex-col gap-1 text-sm">
-          Field type
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="field-type">Field type</Label>
           <select
-            className="rounded border border-black/10 px-3 py-2 dark:border-white/20 dark:bg-black"
+            id="field-type"
+            className="h-8 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
             value={fieldType}
             onChange={(e) => setFieldType(e.target.value as FieldType)}
           >
@@ -124,32 +220,33 @@ export function CustomFieldsSettings() {
               </option>
             ))}
           </select>
-        </label>
+        </div>
 
         {fieldType === "select" && (
-          <label className="flex flex-col gap-1 text-sm">
-            Options (comma-separated)
-            <input
-              className="rounded border border-black/10 px-3 py-2 dark:border-white/20"
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="field-options">Options (comma-separated)</Label>
+            <Input
+              id="field-options"
               value={optionsText}
-              onChange={(e) => setOptionsText(e.target.value)}
+              onChange={(e) => {
+                setOptionsText(e.target.value);
+                setFormError(null);
+              }}
               placeholder="SMB, Mid-market, Enterprise"
             />
-          </label>
+          </div>
         )}
 
         <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={required} onChange={(e) => setRequired(e.target.checked)} />
+          <Checkbox checked={required} onCheckedChange={(checked) => setRequired(checked === true)} />
           Required
         </label>
 
-        <button
-          type="submit"
-          className="w-fit rounded bg-foreground px-4 py-2 text-background disabled:opacity-50"
-          disabled={createDefinition.isPending}
-        >
+        <FieldError message={formError} />
+
+        <Button type="submit" className="w-fit" disabled={createDefinition.isPending}>
           Add field
-        </button>
+        </Button>
       </form>
     </div>
   );

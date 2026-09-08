@@ -59,13 +59,13 @@ describe("csv import — accounts", () => {
     expect(result.failed).toHaveLength(0);
 
     const accounts = await accountService.listAccounts(tenant.id);
-    expect(accounts.map((a) => a.name).sort()).toEqual(["Acme Corp", "Globex"]);
+    expect(accounts.items.map((a) => a.name).sort()).toEqual(["Acme Corp", "Globex"]);
 
     const definitions = await customFieldService.listDefinitions(tenant.id, "account");
     expect(definitions).toHaveLength(1);
     expect(definitions[0].name).toBe("Industry");
 
-    const acme = accounts.find((a) => a.name === "Acme Corp")!;
+    const acme = accounts.items.find((a) => a.name === "Acme Corp")!;
     const values = await customFieldService.listValuesForEntity(tenant.id, "account", acme.id);
     expect(values[0].value).toBe("Manufacturing");
   });
@@ -108,7 +108,7 @@ describe("csv import — accounts", () => {
       mapping: [{ column: "Company", target: "name" }],
     });
 
-    expect(await accountService.listAccounts(tenantB.id)).toHaveLength(0);
+    expect((await accountService.listAccounts(tenantB.id)).items).toHaveLength(0);
   });
 });
 
@@ -129,10 +129,10 @@ describe("csv import — leads", () => {
 
     expect(result.imported).toBe(2);
     const leads = await leadService.listLeads(tenant.id);
-    const jane = leads.find((l) => l.firstName === "Jane")!;
+    const jane = leads.items.find((l) => l.firstName === "Jane")!;
     expect(jane.lastName).toBe("Doe");
     expect(jane.email).toBe("jane@example.com");
-    const john = leads.find((l) => l.firstName === "John")!;
+    const john = leads.items.find((l) => l.firstName === "John")!;
     expect(john.email).toBeNull();
   });
 

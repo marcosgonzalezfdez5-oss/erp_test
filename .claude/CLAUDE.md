@@ -76,6 +76,8 @@ components/             Shared React/shadcn components
 
 Core entities: `Tenant` (Company), `User`, `Membership` (User↔Tenant↔Role), `Role`, `Account`/`Customer`, `Contact`, `Lead`, `Opportunity`, `PipelineStage` (tenant-configurable, ordered rows — not an enum), `Product`, `Quote`, `QuoteLineItem`, `Order` (stub in V1), `Activity`, `Task`, `CustomFieldDefinition`, `CustomFieldValue`, `Suggestion` (the approval primitive — see §9), `AuditLogEntry`, `Attachment`.
 
+**`AuditLogEntry` and `Attachment` are named here as target domain concepts but are not built and not V1 scope** — no schema, service, or router exists for either (confirmed during a V1-completeness audit). They were aspirational entries in this list, not committed V1 deliverables. Treat them as backlog/V2+ candidates; build only when a concrete need names them explicitly, per §17's "don't build ahead of a real need."
+
 Key relationships:
 - `Tenant` 1–N everything; every tenant-owned table carries `tenant_id`.
 - `Account` 1–N `Contact`; `Account`/`Contact` 1–N `Lead`; `Lead` converts to `Opportunity`.
@@ -199,7 +201,7 @@ Custom fields: a metadata table (`CustomFieldDefinition`: tenant, entity type, n
 
 ## 18. Development Workflow
 
-- **V1 is complete** as of the 12-step sequence (tooling → auth/tenant → authorization → accounts/contacts → pipeline → leads → opportunities/activities/tasks → products/quotes → won/lost/order stub → custom fields → CSV import → pipeline dashboard), each implemented and tested (Vitest + Playwright) before the next started. All 12 steps have passing Vitest suites, clean `tsc --noEmit`, and passing Playwright specs. Before starting V2 work, check what's actually been built (tables in `lib/db/schema/`, routes in `app/`) rather than assuming from this doc alone, since it can lag the code.
+- **V1 is complete** as of the 12-step sequence (tooling → auth/tenant → authorization → accounts/contacts → pipeline → leads → opportunities/activities/tasks → products/quotes → won/lost/order stub → custom fields → CSV import → pipeline dashboard), each implemented and tested (Vitest + Playwright) before the next started. All 12 steps have passing Vitest suites, clean `tsc --noEmit`, and passing Playwright specs. A later design-system pass (visual/IA polish, no new capability) and a V1-completeness pass (closed missing update/delete on Account/Product/Contact/Opportunity/Lead/Quote, added Lead un-convert, a minimal `/orders/[id]` page, custom-field value clear + definition rename, search+pagination on Accounts/Leads/Products, app-wide toast/validation feedback, and — closing the one gap that pass had deliberately deferred — a `quote.list` procedure + `/quotes` index page with search/pagination and a sidebar entry) both landed after the original 12 steps — see git history for exact scope. Before starting V2 work, check what's actually been built (tables in `lib/db/schema/`, routes in `app/`) rather than assuming from this doc alone, since it can lag the code.
 - When adding a new aggregate (e.g., `Opportunity`), add in this order: Drizzle schema (with `tenant_id` + RLS) → service module → tRPC procedures → (if applicable) AI tool wrapper → UI.
 - Keep this file up to date as decisions change — if an open question below gets answered, move it into the relevant section above and remove it from Open Questions.
 

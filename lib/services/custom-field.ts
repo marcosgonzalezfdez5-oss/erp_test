@@ -78,6 +78,27 @@ export async function deleteDefinition(tenantId: string, id: string) {
   return definition;
 }
 
+// Rename only — changing fieldType on a definition with existing values would
+// need a data migration and isn't attempted here.
+export const updateDefinitionInput = z.object({
+  id: z.string().uuid(),
+  name: z.string().trim().min(1).max(100),
+});
+
+export async function updateDefinition(tenantId: string, input: z.infer<typeof updateDefinitionInput>) {
+  const [definition] = await withTenantContext(tenantId, (tx) =>
+    tx
+      .update(customFieldDefinitions)
+      .set({ name: input.name })
+      .where(and(eq(customFieldDefinitions.tenantId, tenantId), eq(customFieldDefinitions.id, input.id)))
+      .returning(),
+  );
+  if (!definition) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Custom field definition not found" });
+  }
+  return definition;
+}
+
 // value is genuinely dynamic (its shape depends on the definition's
 // fieldType, which is only known at request time) — validated at runtime
 // below rather than by the static Zod input schema. See CLAUDE.md §11.
@@ -153,6 +174,26 @@ export async function setValue(tenantId: string, input: z.infer<typeof setValueI
       .returning();
     return created;
   });
+}
+
+export const clearValueInput = z.object({
+  definitionId: z.string().uuid(),
+  entityId: z.string().uuid(),
+});
+
+// Idempotent: clearing a value that was never set is a no-op, not an error.
+export async function clearValue(tenantId: string, input: z.infer<typeof clearValueInput>) {
+  await withTenantContext(tenantId, (tx) =>
+    tx
+      .delete(customFieldValues)
+      .where(
+        and(
+          eq(customFieldValues.tenantId, tenantId),
+          eq(customFieldValues.definitionId, input.definitionId),
+          eq(customFieldValues.entityId, input.entityId),
+        ),
+      ),
+  );
 }
 
 export async function listValuesForEntity(tenantId: string, entityType: EntityType, entityId: string) {

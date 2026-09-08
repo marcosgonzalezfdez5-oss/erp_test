@@ -130,3 +130,29 @@ describe("opportunity service — value", () => {
     ).rejects.toThrow(TRPCError);
   });
 });
+
+describe("opportunity service — update/delete", () => {
+  it("renames and soft-deletes an opportunity", async () => {
+    const { tenant, opportunity } = await createTenantWithOpportunity("a");
+
+    const renamed = await opportunityService.updateOpportunity(tenant.id, { id: opportunity.id, name: "Renamed Deal" });
+    expect(renamed.name).toBe("Renamed Deal");
+
+    await opportunityService.deleteOpportunity(tenant.id, opportunity.id);
+    const listed = await opportunityService.listOpportunities(tenant.id);
+    expect(listed.map((o) => o.id)).not.toContain(opportunity.id);
+  });
+
+  it("rejects updateOpportunity/deleteOpportunity for an id belonging to another tenant", async () => {
+    const { opportunity } = await createTenantWithOpportunity("a");
+    const { tenant: tenantB } = await createTenantWithOpportunity("b");
+
+    await expect(
+      opportunityService.updateOpportunity(tenantB.id, { id: opportunity.id, name: "Hijacked" }),
+    ).rejects.toThrow(TRPCError);
+    await expect(opportunityService.deleteOpportunity(tenantB.id, opportunity.id)).rejects.toThrow(TRPCError);
+
+    const stillThere = await opportunityService.getOpportunity(opportunity.tenantId, opportunity.id);
+    expect(stillThere.name).not.toBe("Hijacked");
+  });
+});

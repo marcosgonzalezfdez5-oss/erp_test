@@ -4,7 +4,9 @@ import { router } from "../init";
 import { tenantProcedure } from "../procedures";
 
 export const accountRouter = router({
-  list: tenantProcedure.query(({ ctx }) => accountService.listAccounts(ctx.session.tenantId)),
+  list: tenantProcedure
+    .input(accountService.listAccountsInput)
+    .query(({ ctx, input }) => accountService.listAccounts(ctx.session.tenantId, input)),
 
   get: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))

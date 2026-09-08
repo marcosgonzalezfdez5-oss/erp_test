@@ -51,7 +51,7 @@ test("full story: import leads, convert, move through the pipeline, build a quot
     await page.goto("/dashboard");
     const negotiationRow = page.getByTestId("dashboard-stage-Negotiation");
     await expect(negotiationRow).toContainText("1");
-    await expect(negotiationRow).toContainText("$5000.00");
+    await expect(negotiationRow).toContainText("$5,000.00");
 
     const qualificationRow = page.getByTestId("dashboard-stage-Qualification");
     await expect(qualificationRow).toContainText("0");

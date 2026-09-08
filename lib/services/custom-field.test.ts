@@ -99,6 +99,25 @@ describe("custom field service — definitions", () => {
     await customFieldService.deleteDefinition(tenant.id, definition.id);
     expect(await customFieldService.listDefinitions(tenant.id, "account")).toHaveLength(0);
   });
+
+  it("renames a definition scoped to the tenant", async () => {
+    const { tenant } = await createTenantWithAccount("a");
+    const other = await createTenant("b");
+
+    const definition = await customFieldService.createDefinition(tenant.id, {
+      entityType: "account",
+      name: "Industry",
+      fieldType: "text",
+      required: false,
+    });
+
+    await expect(
+      customFieldService.updateDefinition(other.id, { id: definition.id, name: "Hijacked" }),
+    ).rejects.toThrow(TRPCError);
+
+    const renamed = await customFieldService.updateDefinition(tenant.id, { id: definition.id, name: "Sector" });
+    expect(renamed.name).toBe("Sector");
+  });
 });
 
 describe("custom field service — values", () => {
@@ -158,6 +177,42 @@ describe("custom field service — values", () => {
     expect(byName["Renewal date"]).toBe("2026-12-01");
     expect(byName["Is partner"]).toBe(true);
     expect(byName["Segment"]).toBe("Enterprise");
+  });
+
+  it("clears a value back to unset, and is a no-op when nothing was set", async () => {
+    const { tenant, account } = await createTenantWithAccount("a");
+    const definition = await customFieldService.createDefinition(tenant.id, {
+      entityType: "account",
+      name: "Notes",
+      fieldType: "text",
+      required: false,
+    });
+
+    await customFieldService.setValue(tenant.id, { definitionId: definition.id, entityId: account.id, value: "v1" });
+    await customFieldService.clearValue(tenant.id, { definitionId: definition.id, entityId: account.id });
+
+    const values = await customFieldService.listValuesForEntity(tenant.id, "account", account.id);
+    expect(values[0].value).toBeNull();
+
+    // clearing again (nothing set) does not throw
+    await customFieldService.clearValue(tenant.id, { definitionId: definition.id, entityId: account.id });
+  });
+
+  it("does not clear a value belonging to another tenant", async () => {
+    const { tenant: tenantA, account } = await createTenantWithAccount("a");
+    const { tenant: tenantB } = await createTenantWithAccount("b");
+    const definition = await customFieldService.createDefinition(tenantA.id, {
+      entityType: "account",
+      name: "Notes",
+      fieldType: "text",
+      required: false,
+    });
+    await customFieldService.setValue(tenantA.id, { definitionId: definition.id, entityId: account.id, value: "v1" });
+
+    await customFieldService.clearValue(tenantB.id, { definitionId: definition.id, entityId: account.id });
+
+    const values = await customFieldService.listValuesForEntity(tenantA.id, "account", account.id);
+    expect(values[0].value).toBe("v1");
   });
 
   it("upserts rather than duplicating when a value is set twice", async () => {

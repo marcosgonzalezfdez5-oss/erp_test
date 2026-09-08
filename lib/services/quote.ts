@@ -1,10 +1,13 @@
 import { TRPCError } from "@trpc/server";
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { quotes, quoteLineItems } from "@/lib/db/schema/quote";
+import { opportunities } from "@/lib/db/schema/opportunity";
 import { products } from "@/lib/db/schema/product";
 import { withTenantContext } from "@/lib/db/tenant-context";
 import { getOpportunity } from "./opportunity";
+
+export const PAGE_SIZE = 20;
 
 // Money is stored as a numeric(12,2) string. All arithmetic happens in
 // integer cents so totals are exact and never drift like float math would
@@ -47,6 +50,53 @@ export const updateLineItemQuantityInput = z.object({
   id: z.string().uuid(),
   quantity: z.number().int().positive(),
 });
+
+export const listQuotesInput = z.object({
+  page: z.number().int().min(1).default(1),
+  // Filters by the linked opportunity's name — a quote has no name of its own.
+  search: z.string().trim().max(200).default(""),
+});
+
+// No index/list UI existed until this pass (CLAUDE.md §18) — quotes were only
+// reachable via their Opportunity. Each row joins the opportunity for display
+// and sums its line items in Postgres (exact numeric arithmetic, not JS float
+// — CLAUDE.md §12) rather than reusing calculateQuoteTotalCents per row.
+export async function listQuotes(tenantId: string, rawInput: z.input<typeof listQuotesInput> = {}) {
+  const input = listQuotesInput.parse(rawInput);
+  return withTenantContext(tenantId, async (tx) => {
+    const conditions = [eq(quotes.tenantId, tenantId), isNull(quotes.deletedAt)];
+    if (input.search) {
+      conditions.push(ilike(opportunities.name, `%${input.search}%`));
+    }
+    const where = and(...conditions);
+
+    const [items, [{ total }]] = await Promise.all([
+      tx
+        .select({
+          id: quotes.id,
+          opportunityId: quotes.opportunityId,
+          opportunityName: opportunities.name,
+          createdAt: quotes.createdAt,
+          total: sql<string>`coalesce(sum(${quoteLineItems.quantity} * ${quoteLineItems.unitPrice}), 0)`,
+        })
+        .from(quotes)
+        .innerJoin(opportunities, eq(quotes.opportunityId, opportunities.id))
+        .leftJoin(quoteLineItems, eq(quoteLineItems.quoteId, quotes.id))
+        .where(where)
+        .groupBy(quotes.id, opportunities.name)
+        .orderBy(desc(quotes.createdAt))
+        .limit(PAGE_SIZE)
+        .offset((input.page - 1) * PAGE_SIZE),
+      tx
+        .select({ total: count() })
+        .from(quotes)
+        .innerJoin(opportunities, eq(quotes.opportunityId, opportunities.id))
+        .where(where),
+    ]);
+
+    return { items, total };
+  });
+}
 
 export function listQuotesByOpportunity(tenantId: string, opportunityId: string) {
   return withTenantContext(tenantId, (tx) =>

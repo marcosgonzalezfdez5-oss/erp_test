@@ -93,3 +93,36 @@ export async function updateOpportunityValue(tenantId: string, input: z.infer<ty
   }
   return opportunity;
 }
+
+export const updateOpportunityInput = z.object({
+  id: z.string().uuid(),
+  name: z.string().trim().min(1).max(200),
+});
+
+export async function updateOpportunity(tenantId: string, input: z.infer<typeof updateOpportunityInput>) {
+  const [opportunity] = await withTenantContext(tenantId, (tx) =>
+    tx
+      .update(opportunities)
+      .set({ name: input.name, updatedAt: new Date() })
+      .where(and(eq(opportunities.tenantId, tenantId), eq(opportunities.id, input.id), isNull(opportunities.deletedAt)))
+      .returning(),
+  );
+  if (!opportunity) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Opportunity not found" });
+  }
+  return opportunity;
+}
+
+export async function deleteOpportunity(tenantId: string, id: string) {
+  const [opportunity] = await withTenantContext(tenantId, (tx) =>
+    tx
+      .update(opportunities)
+      .set({ deletedAt: new Date() })
+      .where(and(eq(opportunities.tenantId, tenantId), eq(opportunities.id, id), isNull(opportunities.deletedAt)))
+      .returning(),
+  );
+  if (!opportunity) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Opportunity not found" });
+  }
+  return opportunity;
+}

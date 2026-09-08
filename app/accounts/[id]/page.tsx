@@ -11,7 +11,7 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
   const { id } = await params;
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-12">
+    <div className="mx-auto flex w-full max-w-3xl flex-col">
       <AccountDetail accountId={id} />
     </div>
   );

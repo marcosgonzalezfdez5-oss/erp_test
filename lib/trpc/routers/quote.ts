@@ -4,6 +4,10 @@ import { router } from "../init";
 import { tenantProcedure } from "../procedures";
 
 export const quoteRouter = router({
+  list: tenantProcedure
+    .input(quoteService.listQuotesInput.optional())
+    .query(({ ctx, input }) => quoteService.listQuotes(ctx.session.tenantId, input)),
+
   listByOpportunity: tenantProcedure
     .input(z.object({ opportunityId: z.string().uuid() }))
     .query(({ ctx, input }) => quoteService.listQuotesByOpportunity(ctx.session.tenantId, input.opportunityId)),

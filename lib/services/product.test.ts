@@ -31,7 +31,7 @@ describe("product service", () => {
     expect(created.unitPrice).toBe("19.99");
 
     const listed = await productService.listProducts(tenant.id);
-    expect(listed.map((p) => p.id)).toContain(created.id);
+    expect(listed.items.map((p) => p.id)).toContain(created.id);
 
     const updated = await productService.updateProduct(tenant.id, {
       id: created.id,
@@ -43,7 +43,31 @@ describe("product service", () => {
 
     await productService.deleteProduct(tenant.id, created.id);
     const afterDelete = await productService.listProducts(tenant.id);
-    expect(afterDelete.map((p) => p.id)).not.toContain(created.id);
+    expect(afterDelete.items.map((p) => p.id)).not.toContain(created.id);
+  });
+
+  it("filters by search and paginates results", async () => {
+    const tenant = await createTenant("a");
+    await productService.createProduct(tenant.id, { name: "Widget", unitPrice: 10 });
+    await productService.createProduct(tenant.id, { name: "Gadget", unitPrice: 20 });
+
+    const searched = await productService.listProducts(tenant.id, { page: 1, search: "widg" });
+    expect(searched.items.map((p) => p.name)).toEqual(["Widget"]);
+    expect(searched.total).toBe(1);
+
+    const all = await productService.listProducts(tenant.id, { page: 1, search: "" });
+    expect(all.total).toBe(2);
+  });
+
+  it("scopes search/pagination results to the requesting tenant", async () => {
+    const tenantA = await createTenant("a");
+    const tenantB = await createTenant("b");
+    await productService.createProduct(tenantA.id, { name: "Tenant A Widget", unitPrice: 10 });
+    await productService.createProduct(tenantB.id, { name: "Tenant B Widget", unitPrice: 10 });
+
+    const listedByB = await productService.listProducts(tenantB.id, { page: 1, search: "" });
+    expect(listedByB.items.map((p) => p.name)).toEqual(["Tenant B Widget"]);
+    expect(listedByB.total).toBe(1);
   });
 
   it("rejects getProduct for an id belonging to another tenant", async () => {

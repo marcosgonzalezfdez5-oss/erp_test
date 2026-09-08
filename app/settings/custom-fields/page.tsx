@@ -1,5 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
+import { PageHeader } from "@/components/page-header";
 import { CustomFieldsSettings } from "./custom-fields-settings";
 
 export default async function CustomFieldsSettingsPage() {
@@ -10,8 +11,8 @@ export default async function CustomFieldsSettingsPage() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-12">
-      <h1 className="text-xl font-semibold">Custom fields</h1>
+    <div className="mx-auto flex w-full max-w-3xl flex-col">
+      <PageHeader title="Custom fields" description="Define tenant-specific fields for accounts and opportunities." />
       <CustomFieldsSettings />
     </div>
   );

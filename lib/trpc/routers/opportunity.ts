@@ -17,4 +17,12 @@ export const opportunityRouter = router({
   updateValue: tenantProcedure
     .input(opportunityService.updateValueInput)
     .mutation(({ ctx, input }) => opportunityService.updateOpportunityValue(ctx.session.tenantId, input)),
+
+  update: tenantProcedure
+    .input(opportunityService.updateOpportunityInput)
+    .mutation(({ ctx, input }) => opportunityService.updateOpportunity(ctx.session.tenantId, input)),
+
+  delete: tenantProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(({ ctx, input }) => opportunityService.deleteOpportunity(ctx.session.tenantId, input.id)),
 });

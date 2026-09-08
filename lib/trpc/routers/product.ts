@@ -4,7 +4,9 @@ import { router } from "../init";
 import { tenantProcedure } from "../procedures";
 
 export const productRouter = router({
-  list: tenantProcedure.query(({ ctx }) => productService.listProducts(ctx.session.tenantId)),
+  list: tenantProcedure
+    .input(productService.listProductsInput.optional())
+    .query(({ ctx, input }) => productService.listProducts(ctx.session.tenantId, input)),
 
   get: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))

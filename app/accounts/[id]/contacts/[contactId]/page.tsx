@@ -1,0 +1,18 @@
+import { auth } from "@clerk/nextjs/server";
+import { redirect } from "next/navigation";
+import { ContactDetail } from "./contact-detail";
+
+export default async function ContactDetailPage({ params }: { params: Promise<{ id: string; contactId: string }> }) {
+  await auth.protect();
+  const { orgId } = await auth();
+  if (!orgId) {
+    redirect("/dashboard");
+  }
+  const { contactId } = await params;
+
+  return (
+    <div className="mx-auto flex w-full max-w-3xl flex-col">
+      <ContactDetail contactId={contactId} />
+    </div>
+  );
+}

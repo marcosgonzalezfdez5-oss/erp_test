@@ -27,6 +27,16 @@ test("define a custom field in settings, then fill it in and save it on a record
 
     await page.reload();
     await expect(page.getByLabel("Industry")).toHaveValue("Manufacturing");
+
+    await page.getByRole("button", { name: "Clear" }).click();
+    await expect(page.getByLabel("Industry")).toHaveValue("");
+
+    await page.goto("/settings/custom-fields");
+    await page.getByRole("button", { name: "Rename Industry" }).click();
+    const renameDialog = page.getByRole("dialog");
+    await renameDialog.getByLabel("Field name").fill("Sector");
+    await renameDialog.getByRole("button", { name: "Save" }).click();
+    await expect(page.getByText("Sector (text)")).toBeVisible();
   } finally {
     await deleteTestUser(user.id);
   }
