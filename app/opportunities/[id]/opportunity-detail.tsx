@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc/client";
+import { AssistPanel } from "@/components/assist-panel";
 import { CustomFieldsForm } from "@/components/custom-fields-form";
 import { DeleteConfirmDialog } from "@/components/delete-confirm-dialog";
 import { EditDialog } from "@/components/edit-dialog";
@@ -211,6 +212,8 @@ export function OpportunityDetail({ opportunityId }: { opportunityId: string }) 
       </div>
 
       <CustomFieldsForm entityType="opportunity" entityId={opportunityId} />
+
+      <AssistPanel entityType="opportunity" entityId={opportunityId} />
 
       <section className="flex flex-col gap-3">
         <h2 className="text-sm font-medium text-muted-foreground">Activities</h2>

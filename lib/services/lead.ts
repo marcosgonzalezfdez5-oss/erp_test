@@ -8,6 +8,7 @@ import { pipelineStages } from "@/lib/db/schema/pipeline-stage";
 import { quotes } from "@/lib/db/schema/quote";
 import { tasks } from "@/lib/db/schema/task";
 import { withTenantContext } from "@/lib/db/tenant-context";
+import { dispatchTrigger } from "@/lib/automation/triggers";
 
 export const PAGE_SIZE = 20;
 
@@ -76,7 +77,7 @@ export const convertToOpportunityInput = z.object({
  * CLAUDE.md §5/§7.
  */
 export async function convertLeadToOpportunity(tenantId: string, input: z.infer<typeof convertToOpportunityInput>) {
-  return withTenantContext(tenantId, async (tx) => {
+  const opportunity = await withTenantContext(tenantId, async (tx) => {
     const [lead] = await tx
       .select()
       .from(leads)
@@ -115,6 +116,10 @@ export async function convertLeadToOpportunity(tenantId: string, input: z.infer<
 
     return opportunity;
   });
+
+  await dispatchTrigger(tenantId, "opportunity_created", { opportunityId: opportunity.id });
+
+  return opportunity;
 }
 
 export async function deleteLead(tenantId: string, id: string) {

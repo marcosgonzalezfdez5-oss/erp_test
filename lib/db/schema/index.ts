@@ -13,3 +13,7 @@ export * from "./quote";
 export * from "./order";
 export * from "./custom-field";
 export * from "./ai-tool-invocation";
+export * from "./suggestion";
+export * from "./draft";
+export * from "./email";
+export * from "./automation";

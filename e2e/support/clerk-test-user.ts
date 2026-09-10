@@ -17,9 +17,37 @@ export async function createTestUser() {
 export async function deleteTestUser(userId: string) {
   const memberships = await backend.users.getOrganizationMembershipList({ userId });
   for (const membership of memberships.data) {
-    await backend.organizations.deleteOrganization(membership.organization.id);
+    await backend.organizations.deleteOrganization(membership.organization.id).catch(() => {});
   }
-  await backend.users.deleteUser(userId);
+  await backend.users.deleteUser(userId).catch(() => {});
+}
+
+/** Deletes just the user, leaving any orgs (owned by another test user) intact. */
+export async function deleteTestUserOnly(userId: string) {
+  await backend.users.deleteUser(userId).catch(() => {});
+}
+
+/** The Clerk org id the user belongs to (they create exactly one in these tests). */
+export async function getUserOrgId(userId: string): Promise<string> {
+  const memberships = await backend.users.getOrganizationMembershipList({ userId });
+  const orgId = memberships.data[0]?.organization.id;
+  if (!orgId) throw new Error(`user ${userId} has no organization membership`);
+  return orgId;
+}
+
+/**
+ * Adds an existing test user to an org with a given Clerk org role.
+ * `role` is a Clerk role key: "org:admin", "org:member" (→ sales_rep in our
+ * mapping), or "org:sales_manager" (a custom role that must exist in the
+ * Clerk instance — see lib/auth/session.ts mapClerkOrgRole).
+ */
+export async function addUserToOrg(organizationId: string, userId: string, role: string) {
+  await backend.organizations.createOrganizationMembership({ organizationId, userId, role });
+}
+
+/** Changes an existing member's Clerk org role. */
+export async function setOrgRole(organizationId: string, userId: string, role: string) {
+  await backend.organizations.updateOrganizationMembership({ organizationId, userId, role });
 }
 
 /**
@@ -38,4 +66,25 @@ export async function signInAndCreateOrg(page: Page, email: string, orgName: str
   await page.getByRole("button", { name: "Continue" }).click();
 
   await page.waitForURL("http://localhost:3000/dashboard");
+}
+
+/**
+ * Signs in as a user who is already a member of exactly one organization
+ * (added via addUserToOrg). Completes the "choose-organization" task by
+ * selecting that single org if Clerk presents it.
+ */
+export async function signInExistingMember(page: Page, email: string) {
+  await page.goto("/");
+  await clerk.signIn({ page, emailAddress: email });
+
+  await page.goto("/dashboard");
+  await page.waitForURL(/dashboard|choose-organization/);
+
+  if (page.url().includes("choose-organization")) {
+    // The user belongs to one org — pick it from the list.
+    await page.getByRole("button", { name: /continue|select|open/i }).first().click().catch(async () => {
+      await page.getByRole("listitem").first().click();
+    });
+    await page.waitForURL("http://localhost:3000/dashboard");
+  }
 }

@@ -11,7 +11,7 @@ import { auth, clerkClient, currentUser } from "@clerk/nextjs/server";
 import { db } from "@/lib/db/client";
 import { tenants } from "@/lib/db/schema/tenant";
 import { users } from "@/lib/db/schema/user";
-import { resolveSessionContext } from "./session";
+import { mapClerkOrgRole, resolveSessionContext } from "./session";
 import { listPipelineStages } from "@/lib/services/pipeline";
 
 const clerkOrgId = `org_test_${crypto.randomUUID()}`;
@@ -70,5 +70,28 @@ describe("resolveSessionContext", () => {
 
     const session = await resolveSessionContext();
     expect(session).toBeNull();
+  });
+
+  it("re-syncs a membership role when the Clerk org role changes", async () => {
+    mockAuth({ orgRole: "org:member" });
+    expect((await resolveSessionContext())?.role).toBe("sales_rep");
+
+    // Clerk is the source of truth — a dashboard role change must propagate
+    // on the member's next request, not be ignored because a row already exists.
+    mockAuth({ orgRole: "org:sales_manager" });
+    expect((await resolveSessionContext())?.role).toBe("sales_manager");
+  });
+});
+
+describe("mapClerkOrgRole", () => {
+  it.each([
+    ["org:admin", "admin"],
+    ["org:sales_manager", "sales_manager"],
+    ["org:member", "sales_rep"],
+    ["something_else", "sales_rep"],
+    [null, "sales_rep"],
+    [undefined, "sales_rep"],
+  ] as const)("maps %s to %s", (orgRole, expected) => {
+    expect(mapClerkOrgRole(orgRole)).toBe(expected);
   });
 });

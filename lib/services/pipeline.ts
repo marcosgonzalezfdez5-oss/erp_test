@@ -4,7 +4,7 @@ import { z } from "zod";
 import { pipelineStages, pipelineStageKindEnum } from "@/lib/db/schema/pipeline-stage";
 import { withTenantContext } from "@/lib/db/tenant-context";
 
-const DEFAULT_STAGES: Array<{ name: string; kind: (typeof pipelineStageKindEnum.enumValues)[number] }> = [
+export const DEFAULT_STAGES: Array<{ name: string; kind: (typeof pipelineStageKindEnum.enumValues)[number] }> = [
   { name: "Qualification", kind: "open" },
   { name: "Proposal", kind: "open" },
   { name: "Negotiation", kind: "open" },

@@ -15,6 +15,11 @@ import { orderRouter } from "./order";
 import { customFieldRouter } from "./custom-field";
 import { csvImportRouter } from "./csv-import";
 import { dashboardRouter } from "./dashboard";
+import { suggestionRouter } from "./suggestion";
+import { setupWizardRouter } from "./setup-wizard";
+import { draftRouter } from "./draft";
+import { emailRouter } from "./email";
+import { automationRouter } from "./automation";
 
 export const appRouter = router({
   health: publicProcedure.query(async () => {
@@ -37,6 +42,11 @@ export const appRouter = router({
   customField: customFieldRouter,
   csvImport: csvImportRouter,
   dashboard: dashboardRouter,
+  suggestion: suggestionRouter,
+  setupWizard: setupWizardRouter,
+  draft: draftRouter,
+  email: emailRouter,
+  automation: automationRouter,
 });
 
 export type AppRouter = typeof appRouter;

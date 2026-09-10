@@ -5,6 +5,7 @@ import { opportunities } from "@/lib/db/schema/opportunity";
 import { pipelineStages } from "@/lib/db/schema/pipeline-stage";
 import { orders } from "@/lib/db/schema/order";
 import { withTenantContext } from "@/lib/db/tenant-context";
+import { dispatchTrigger } from "@/lib/automation/triggers";
 
 export function listOpportunities(tenantId: string) {
   return withTenantContext(tenantId, (tx) =>
@@ -22,6 +23,29 @@ export function listOpportunities(tenantId: string) {
       .innerJoin(pipelineStages, eq(opportunities.pipelineStageId, pipelineStages.id))
       .where(and(eq(opportunities.tenantId, tenantId), isNull(opportunities.deletedAt)))
       .orderBy(asc(pipelineStages.order), asc(opportunities.createdAt)),
+  );
+}
+
+export function listOpportunitiesByAccount(tenantId: string, accountId: string) {
+  return withTenantContext(tenantId, (tx) =>
+    tx
+      .select({
+        id: opportunities.id,
+        name: opportunities.name,
+        value: opportunities.value,
+        stageName: pipelineStages.name,
+        stageKind: pipelineStages.kind,
+      })
+      .from(opportunities)
+      .innerJoin(pipelineStages, eq(opportunities.pipelineStageId, pipelineStages.id))
+      .where(
+        and(
+          eq(opportunities.tenantId, tenantId),
+          eq(opportunities.accountId, accountId),
+          isNull(opportunities.deletedAt),
+        ),
+      )
+      .orderBy(asc(pipelineStages.order)),
   );
 }
 
@@ -44,7 +68,7 @@ export const moveStageInput = z.object({
 });
 
 export async function moveOpportunityToStage(tenantId: string, input: z.infer<typeof moveStageInput>) {
-  return withTenantContext(tenantId, async (tx) => {
+  const { opportunity, stageKind } = await withTenantContext(tenantId, async (tx) => {
     const [stage] = await tx
       .select({ id: pipelineStages.id, kind: pipelineStages.kind })
       .from(pipelineStages)
@@ -53,12 +77,12 @@ export async function moveOpportunityToStage(tenantId: string, input: z.infer<ty
       throw new TRPCError({ code: "NOT_FOUND", message: "Pipeline stage not found" });
     }
 
-    const [opportunity] = await tx
+    const [row] = await tx
       .update(opportunities)
       .set({ pipelineStageId: input.pipelineStageId, updatedAt: new Date() })
       .where(and(eq(opportunities.tenantId, tenantId), eq(opportunities.id, input.id), isNull(opportunities.deletedAt)))
       .returning();
-    if (!opportunity) {
+    if (!row) {
       throw new TRPCError({ code: "NOT_FOUND", message: "Opportunity not found" });
     }
 
@@ -66,13 +90,23 @@ export async function moveOpportunityToStage(tenantId: string, input: z.infer<ty
     // unique constraint on orders.opportunityId makes re-triggering (moving
     // to won again, or calling this repeatedly) a no-op rather than a duplicate.
     if (stage.kind === "won") {
-      await tx.insert(orders).values({ tenantId, opportunityId: opportunity.id }).onConflictDoNothing({
+      await tx.insert(orders).values({ tenantId, opportunityId: row.id }).onConflictDoNothing({
         target: orders.opportunityId,
       });
     }
 
-    return opportunity;
+    return { opportunity: row, stageKind: stage.kind };
   });
+
+  // Best-effort — dispatchTrigger owns its errors and never throws here.
+  await dispatchTrigger(tenantId, "opportunity_stage_changed", {
+    opportunityId: opportunity.id,
+    toStageId: input.pipelineStageId,
+    toStageKind: stageKind,
+    value: opportunity.value,
+  });
+
+  return opportunity;
 }
 
 export const updateValueInput = z.object({

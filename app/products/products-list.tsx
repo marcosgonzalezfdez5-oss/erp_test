@@ -23,7 +23,7 @@ function parsePrice(raw: string): number | null {
   return Math.round(price * 100) / 100;
 }
 
-export function ProductsList() {
+export function ProductsList({ canManage }: { canManage: boolean }) {
   const utils = trpc.useUtils();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
@@ -62,6 +62,13 @@ export function ProductsList() {
 
   return (
     <div className="flex flex-col gap-6">
+      {!canManage && (
+        <p className="text-sm text-muted-foreground">
+          You can browse the catalog and add these products to quotes. Editing the catalog requires manager or admin
+          access.
+        </p>
+      )}
+      {canManage && (
       <form
         className="flex items-start gap-2"
         onSubmit={(e) => {
@@ -106,7 +113,8 @@ export function ProductsList() {
           Create product
         </Button>
       </form>
-      <FieldError message={formError} />
+      )}
+      {canManage && <FieldError message={formError} />}
 
       <SearchInput
         value={search}
@@ -141,6 +149,7 @@ export function ProductsList() {
               <span className="text-foreground">{product.name}</span>
               <div className="flex items-center gap-3">
                 <Money value={product.unitPrice} className="text-muted-foreground" />
+                {canManage && (
                 <div className="flex shrink-0 gap-1">
                   <EditDialog
                     trigger={
@@ -207,6 +216,7 @@ export function ProductsList() {
                     onConfirm={() => deleteProduct.mutate({ id: product.id })}
                   />
                 </div>
+                )}
               </div>
             </li>
           ))}

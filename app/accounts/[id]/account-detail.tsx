@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc/client";
+import { AssistPanel } from "@/components/assist-panel";
 import { CustomFieldsForm } from "@/components/custom-fields-form";
 import { DeleteConfirmDialog } from "@/components/delete-confirm-dialog";
 import { EditDialog } from "@/components/edit-dialog";
@@ -118,6 +119,8 @@ export function AccountDetail({ accountId }: { accountId: string }) {
       />
 
       <CustomFieldsForm entityType="account" entityId={accountId} />
+
+      <AssistPanel entityType="account" entityId={accountId} />
 
       <div className="flex flex-col gap-2">
         <h2 className="text-sm font-medium text-muted-foreground">Contacts</h2>

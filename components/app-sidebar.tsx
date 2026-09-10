@@ -10,11 +10,15 @@ import {
   Package,
   FileText,
   FileUp,
+  Inbox,
   ListTree,
   SlidersHorizontal,
+  Wand2,
+  Zap,
   type LucideIcon,
 } from "lucide-react";
 import type { MembershipRole } from "@/lib/db/schema/membership";
+import { trpc } from "@/lib/trpc/client";
 import {
   Sidebar,
   SidebarContent,
@@ -23,6 +27,7 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
@@ -44,10 +49,17 @@ const primaryNav: NavItem[] = [
   { href: "/quotes", label: "Quotes", icon: FileText },
   { href: "/accounts", label: "Accounts", icon: Users },
   { href: "/products", label: "Products", icon: Package },
+  { href: "/suggestions", label: "Suggestions", icon: Inbox },
   { href: "/import", label: "Import", icon: FileUp },
 ];
 
 const settingsNav: NavItem[] = [
+  {
+    href: "/setup",
+    label: "Guided setup",
+    icon: Wand2,
+    allowedRoles: ["admin", "sales_manager"],
+  },
   {
     href: "/settings/pipeline",
     label: "Pipeline",
@@ -58,6 +70,12 @@ const settingsNav: NavItem[] = [
     href: "/settings/custom-fields",
     label: "Custom fields",
     icon: SlidersHorizontal,
+    allowedRoles: ["admin", "sales_manager"],
+  },
+  {
+    href: "/settings/automation",
+    label: "Automation",
+    icon: Zap,
     allowedRoles: ["admin", "sales_manager"],
   },
 ];
@@ -96,9 +114,26 @@ export function AppSidebar({ role }: { role: MembershipRole }) {
     return pathname === href || pathname?.startsWith(`${href}/`);
   }
 
+  const pendingCount = trpc.suggestion.pendingCount.useQuery(undefined, {
+    // A gentle refresh so a newly-created batch surfaces without a reload.
+    refetchInterval: 60_000,
+  });
+
   function renderItem(item: NavItem) {
     const disabled = item.allowedRoles ? !item.allowedRoles.includes(role) : false;
-    return disabled ? <DisabledNavItem item={item} /> : <NavLink item={item} active={isActive(item.href)} />;
+    if (disabled) return <DisabledNavItem item={item} />;
+
+    const badge =
+      item.href === "/suggestions" && (pendingCount.data ?? 0) > 0 ? (
+        <SidebarMenuBadge>{pendingCount.data}</SidebarMenuBadge>
+      ) : null;
+
+    return (
+      <>
+        <NavLink item={item} active={isActive(item.href)} />
+        {badge}
+      </>
+    );
   }
 
   return (

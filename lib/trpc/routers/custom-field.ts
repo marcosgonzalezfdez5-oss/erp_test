@@ -2,22 +2,25 @@ import { z } from "zod";
 import { customFieldEntityTypeEnum } from "@/lib/db/schema/custom-field";
 import * as customFieldService from "@/lib/services/custom-field";
 import { router } from "../init";
-import { tenantProcedure } from "../procedures";
+import { managerProcedure, tenantProcedure } from "../procedures";
 
 export const customFieldRouter = router({
   listDefinitions: tenantProcedure
     .input(z.object({ entityType: z.enum(customFieldEntityTypeEnum.enumValues) }))
     .query(({ ctx, input }) => customFieldService.listDefinitions(ctx.session.tenantId, input.entityType)),
 
-  createDefinition: tenantProcedure
+  // Defining/removing/renaming fields is a config surface (manager+); filling
+  // in a field's *value* on a record (setValue/clearValue below) is day-to-day
+  // sales work and stays open to all roles.
+  createDefinition: managerProcedure
     .input(customFieldService.createDefinitionInput)
     .mutation(({ ctx, input }) => customFieldService.createDefinition(ctx.session.tenantId, input)),
 
-  deleteDefinition: tenantProcedure
+  deleteDefinition: managerProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(({ ctx, input }) => customFieldService.deleteDefinition(ctx.session.tenantId, input.id)),
 
-  updateDefinition: tenantProcedure
+  updateDefinition: managerProcedure
     .input(customFieldService.updateDefinitionInput)
     .mutation(({ ctx, input }) => customFieldService.updateDefinition(ctx.session.tenantId, input)),
 
