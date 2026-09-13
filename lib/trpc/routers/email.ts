@@ -8,6 +8,14 @@ export const emailRouter = router({
     .input(emailService.sendEmailInput)
     .mutation(({ ctx, input }) => emailService.send(ctx.session, input)),
 
+  sendDocument: tenantProcedure
+    .input(emailService.sendDocumentInput)
+    .mutation(({ ctx, input }) => emailService.sendDocument(ctx.session, input)),
+
+  notifyShipment: tenantProcedure
+    .input(emailService.sendShipmentNotificationInput)
+    .mutation(({ ctx, input }) => emailService.sendShipmentNotification(ctx.session, input)),
+
   listSent: tenantProcedure
     .input(z.object({ opportunityId: z.string().uuid().optional() }).optional())
     .query(({ ctx, input }) => emailService.listSentEmails(ctx.session.tenantId, input)),

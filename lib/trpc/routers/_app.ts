@@ -20,6 +20,15 @@ import { setupWizardRouter } from "./setup-wizard";
 import { draftRouter } from "./draft";
 import { emailRouter } from "./email";
 import { automationRouter } from "./automation";
+import { tenantSettingsRouter } from "./tenant-settings";
+import { warehouseRouter } from "./warehouse";
+import { auditRouter } from "./audit";
+import { inventoryRouter } from "./inventory";
+import { shipmentRouter } from "./shipment";
+import { invoiceRouter } from "./invoice";
+import { paymentRouter } from "./payment";
+import { returnRouter } from "./return";
+import { reportRouter } from "./report";
 
 export const appRouter = router({
   health: publicProcedure.query(async () => {
@@ -47,6 +56,15 @@ export const appRouter = router({
   draft: draftRouter,
   email: emailRouter,
   automation: automationRouter,
+  tenantSettings: tenantSettingsRouter,
+  warehouse: warehouseRouter,
+  audit: auditRouter,
+  inventory: inventoryRouter,
+  shipment: shipmentRouter,
+  invoice: invoiceRouter,
+  payment: paymentRouter,
+  return: returnRouter,
+  report: reportRouter,
 });
 
 export type AppRouter = typeof appRouter;

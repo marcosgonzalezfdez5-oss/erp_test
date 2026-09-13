@@ -10,6 +10,10 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  // @react-pdf/renderer (used for the invoice / credit-note / delivery-note PDFs)
+  // ships CJS with subpath requires its bundler-unfriendly exports map breaks —
+  // let Node resolve it at runtime instead of bundling it.
+  serverExternalPackages: ["@react-pdf/renderer"],
   async headers() {
     return [{ source: "/(.*)", headers: securityHeaders }];
   },

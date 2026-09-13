@@ -55,8 +55,9 @@ describe("quote calculations (pure)", () => {
 describe("quote line-item quantity bounds", () => {
   const base = { quoteId: crypto.randomUUID(), productId: crypto.randomUUID() };
 
-  it("accepts a quantity up to 1,000,000", () => {
+  it("accepts a quantity up to 1,000,000, including decimals", () => {
     expect(quoteService.addLineItemInput.safeParse({ ...base, quantity: 1 }).success).toBe(true);
+    expect(quoteService.addLineItemInput.safeParse({ ...base, quantity: 2.5 }).success).toBe(true);
     expect(quoteService.addLineItemInput.safeParse({ ...base, quantity: 1_000_000 }).success).toBe(true);
   });
 
@@ -67,10 +68,15 @@ describe("quote line-item quantity bounds", () => {
     ).toBe(false);
   });
 
-  it("still rejects zero, negative, and non-integer quantities", () => {
-    for (const quantity of [0, -1, 2.5]) {
+  it("still rejects zero, negative, and sub-milli quantities", () => {
+    for (const quantity of [0, -1, 2.5551]) {
       expect(quoteService.addLineItemInput.safeParse({ ...base, quantity }).success).toBe(false);
     }
+  });
+
+  it("rejects a discount outside 0–100", () => {
+    expect(quoteService.addLineItemInput.safeParse({ ...base, quantity: 1, discountPercent: 150 }).success).toBe(false);
+    expect(quoteService.addLineItemInput.safeParse({ ...base, quantity: 1, discountPercent: -5 }).success).toBe(false);
   });
 });
 
@@ -92,6 +98,28 @@ describe("quote service", () => {
     await productService.updateProduct(tenant.id, { id: widget.id, name: "Widget", unitPrice: 999 });
     const afterPriceChange = await quoteService.getQuoteWithLineItems(tenant.id, quote.id);
     expect(afterPriceChange.total).toBe("45.50");
+  });
+
+  it("applies a line discount to the net unit price and the total, and carries it to decimal quantities", async () => {
+    const { tenant, opportunity } = await createTenantWithOpportunity("a");
+    const widget = await productService.createProduct(tenant.id, { name: "Widget", unitPrice: 100 });
+    const quote = await quoteService.createQuote(tenant.id, { opportunityId: opportunity.id });
+
+    const line = await quoteService.addLineItem(tenant.id, {
+      quoteId: quote.id,
+      productId: widget.id,
+      quantity: 2.5,
+      discountPercent: 10,
+    });
+    expect(line.quantity).toBe("2.500");
+    expect(line.netUnitPrice).toBe("90.00"); // 100 − 10%
+
+    const result = await quoteService.getQuoteWithLineItems(tenant.id, quote.id);
+    expect(result.lineItems[0].lineTotal).toBe("225.00"); // 90 × 2.5
+    expect(result.total).toBe("225.00");
+
+    const listed = await quoteService.listQuotes(tenant.id);
+    expect(listed.items[0].total).toBe("225.00");
   });
 
   it("updates and removes line items", async () => {

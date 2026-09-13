@@ -17,10 +17,12 @@ export const emailMessages = pgTable(
       .notNull()
       .references(() => tenants.id, { onDelete: "cascade" }),
     // Polymorphic references, no FK — kept for the audit trail even if the
-    // draft/opportunity/contact is later deleted.
+    // draft/opportunity/contact/invoice/shipment is later deleted.
     draftId: uuid("draft_id"),
     opportunityId: uuid("opportunity_id"),
     contactId: uuid("contact_id"),
+    invoiceId: uuid("invoice_id"), // set when this email delivered an invoice / credit-note PDF
+    shipmentId: uuid("shipment_id"), // set for a dispatch / tracking notification
     toAddress: text("to_address").notNull(),
     fromName: text("from_name"),
     replyTo: text("reply_to"),

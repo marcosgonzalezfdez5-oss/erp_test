@@ -36,6 +36,17 @@ The long-term differentiator is **implementation speed**: getting a company from
   - **Roles map from the Clerk org role on every request** (`mapClerkOrgRole` in `lib/auth/session.ts`): `org:admin` → `admin`, custom `org:sales_manager` → `sales_manager`, everything else → `sales_rep`. `syncMembership` upserts the membership row and keeps its role in sync with Clerk on each request — Clerk is the source of truth, a dashboard role change propagates on the member's next request (an earlier version only set the role on first sight).
   - The installed `@clerk/nextjs` (7.x, "Core 3") has **removed** the `<SignedIn>`/`<SignedOut>`/`<Protect>` control components entirely — importing and rendering them compiles fine but throws at request time (`Clerk: <X> is not available in @clerk/nextjs Core 3`). Do not reach for them from memory/training data. Check auth conditionally by calling `auth()` from `@clerk/nextjs/server` in a Server Component (`const { userId } = await auth()`) and branching in plain JSX instead — this is also what every page already does via `auth.protect()`, so it's the established pattern, not a workaround.
 
+- **ERP fulfilment & billing (post-CRM expansion, in the working tree — migrations `0024`–`0033`):**
+  the sales chain now continues past the quote — `Order` (real aggregate, `SO-`) → `Shipment`
+  (`DN-` delivery note) → append-only stock ledger → `Invoice` / credit note (`INV-` / `REC-`) →
+  `Payment` (allocated across invoices) → returns. Built for **Spanish/EU fiscal compliance**
+  (per-VAT-rate breakdown, IRPF withholding, gapless sequential numbering, immutable issued
+  documents). All money/tax arithmetic is in **`lib/money.ts`** (BigInt, deterministic — §12).
+  Reporting (`lib/services/reports.ts`) — AR aging, stock valuation, margin, sales-by-VAT-rate —
+  is deterministic SQL, **not** the V4 NL-analytics agent. Non-UI core (schema + RLS + services +
+  routers + Vitest) is complete for all of it; the pages, the PDF renderer and document email are
+  still to build. See §6 and the plan at `.claude/plans/read-the-claude-md-file-lovely-cherny.md`.
+
 This is a **single Next.js application at the repo root** — not a monorepo. Keep internal module boundaries clean (`lib/services/*`, `lib/ai/*`, `lib/db/*`, `lib/trpc/*`) so a future split is possible, but don't introduce workspace tooling before there's a second deployable that actually needs it.
 
 ## 4. Architecture Principles
@@ -79,10 +90,15 @@ lib/
   automation/            Declarative-automation engine: triggers, conditions, action handlers, cron runner (V2, §10)
   config/                Tenant configuration helpers (pipelines, custom fields, terminology)
   auth/                  Auth/session helpers, tenant resolution, ActorContext, role checks, page guard
+  money.ts               The single home for money + tax arithmetic (BigInt, deterministic — §12)
+  shipping/              Carrier list + tracking-URL templates (no carrier API — §17)
 components/             Shared React/shadcn components
 ```
 
-(This structure grew through V1 and is now growing through V2 — treat the above as the current shape, kept roughly in sync with the tree.)
+(This structure grew through V1, then V2, and is now growing through the ERP expansion — treat the
+above as the current shape, kept roughly in sync with the tree. `lib/services/` now also holds
+`order.ts`, `inventory.ts`, `shipment.ts`, `invoice.ts`, `payment.ts`, `return.ts`, `reports.ts`,
+`sequence.ts`, `tenant-settings.ts`, `warehouse.ts`, `audit.ts`.)
 
 ## 6. Domain Concepts (V1 target)
 
@@ -94,13 +110,68 @@ Core entities: `Tenant` (Company), `User`, `Membership` (User↔Tenant↔Role), 
 - `EmailMessage` (`lib/db/schema/email.ts`) — a record of every email the ERP sent via Resend; the audit trail for a customer-facing action.
 - `AutomationRule` + `AutomationRun` (`lib/db/schema/automation.ts`) — see §10. `automation_runs` doubles as the job queue and the audit trail.
 
-**`AuditLogEntry` and `Attachment` are still not built** — no schema, service, or router. `ai_tool_invocations` covers AI-call audit and `email_messages` / `automation_runs` cover their own; a general audit log is still backlog. Build only when a concrete need names it, per §17.
+**ERP fulfilment & billing entities now in the tree** (schema + RLS + service + router + Vitest;
+UI + PDF + document email still to build):
+- `TenantSettings` (`lib/db/schema/tenant-settings.ts`) — one row per tenant: fiscal identity
+  (legal name, NIF, address), default VAT rate + IRPF, per-series number-format templates,
+  payment terms, `allowNegativeStock`. `tenantSettingsService.readSettings` synthesizes defaults
+  when no row exists, so reads never require it to be pre-created.
+- `Sequence` (`lib/db/schema/sequence.ts`) — per `(tenant, kind, period)` gapless counter. One
+  mechanism, four series: `order | delivery_note | invoice | credit_note`.
+  `sequenceService.allocate(tx, …)` runs `INSERT … ON CONFLICT DO UPDATE` **inside the issuing
+  transaction**, so a rollback releases the number and concurrent issuers serialise — gaplessness
+  is a Spanish/EU legal requirement.
+- `AuditLogEntry` (`lib/db/schema/audit-log.ts`) — **now built**, scoped to financial + stock
+  events (invoice issue/rectify, stock adjustments, payments, returns). `recordAudit(tx, …)` is
+  written inside the same transaction as the mutation. Still **not** a general framework — the
+  invoice / payment / inventory / shipment / return services are the only writers (§17).
+- `Warehouse` (`lib/db/schema/warehouse.ts`) — physical stock location; exactly one `isDefault`
+  per tenant, enforced in-service.
+- `Order` (`lib/db/schema/order.ts`) — **no longer a stub.** Real line items (snapshotted price /
+  discount / tax / cost), `status` (`draft → confirmed → partially_fulfilled → fulfilled →
+  cancelled`), cached `fulfillmentStatus` / `invoiceStatus`, `SO-` number assigned on confirm,
+  per-VAT-rate `taxSummary`. Created as a `draft` when an opportunity is won (lines from its
+  latest quote) or entered standalone; a human `confirm`s it (picks the warehouse → reserves
+  stock). `OrderLineItem` is the frozen snapshot.
+- `StockLevel` + `StockMovement` (`lib/db/schema/inventory.ts`) — `stock_movements` is an
+  append-only ledger (the source of truth); `stock_levels` is the running total kept in step
+  inside the same transaction. Reservation on confirm, drawdown on ship, restock on return; a
+  `SELECT … FOR UPDATE` on the level row makes concurrent confirmations unable to oversell.
+- `Shipment` + `ShipmentLineItem` (`lib/db/schema/shipment.ts`) — one physical dispatch against
+  one order from one warehouse; `DN-` number on the `shipped` transition, which is the
+  consequential idempotent step (writes `sale` movements, converts the reservation to a real
+  drawdown, bumps `quantityShipped`, recomputes fulfilment). Carrier + tracking are **manual** —
+  no carrier API, rate shopping or webhooks (§17); `lib/shipping/carriers.ts` holds tracking-URL
+  templates only.
+- `Invoice` + `InvoiceLineItem` (`lib/db/schema/invoice.ts`) — one table for both an ordinary
+  invoice and a rectifying credit note (`documentType`). A `draft` may be hard-deleted; once
+  `issued` the number, both parties' legal identity and the line snapshots are frozen and the
+  only correction is a `REC-` credit note. `issueInvoice` allocates the gapless number in-txn,
+  freezes the snapshots, commits `quantityInvoiced` onto the covered order lines with an
+  over-invoice guard that spans the order and shipment paths, and refuses until the tenant's
+  legal identity is set. **No `deleted_at`.**
+- `Payment` + `PaymentAllocation` (`lib/db/schema/payment.ts`) — a payment is recorded against an
+  **account**, not one invoice; allocations spread it across open invoices and
+  `invoice.amountPaid` ≡ Σ allocations. Any unallocated remainder is account credit
+  (`paymentService.getAccountBalance`).
+
+**`Attachment` is still not built** — no schema, service, or router. `ai_tool_invocations` covers
+AI-call audit and `email_messages` / `automation_runs` cover their own. Build only when a concrete
+need names it, per §17.
 
 Key relationships:
 - `Tenant` 1–N everything; every tenant-owned table carries `tenant_id`.
 - `Account` 1–N `Contact`; `Account`/`Contact` 1–N `Lead`; `Lead` converts to `Opportunity`.
 - `Opportunity` N–1 `PipelineStage`; 1–N `Activity`, `Task`, `Quote`.
-- `Quote` 1–N `QuoteLineItem` N–1 `Product`; `Opportunity` (Won) → 1 `Order`.
+- `Quote` 1–N `QuoteLineItem` N–1 `Product`; `Opportunity` (Won) → 1 `Order` (a **draft**, lines
+  snapshotted from the latest quote; standalone orders have no opportunity).
+- `Order` 1–N `OrderLineItem` N–1 `Product`; `Order` 1–N `Shipment`, 1–N `Invoice`; N–1
+  `Warehouse` (set on confirm).
+- `Shipment` 1–N `ShipmentLineItem` → `OrderLineItem`; `shipped` writes `StockMovement`s.
+- `Invoice` 1–N `InvoiceLineItem` (source `order_line | shipment_line | manual`); a credit note
+  N–1 the invoice it `rectifies`. `Payment` N–1 `Account`, 1–N `PaymentAllocation` → `Invoice`.
+- `StockLevel` N–1 `Product` + `Warehouse` (unique together); `StockMovement` append-only,
+  polymorphic `referenceType/referenceId` to order / shipment (no FK).
 - `CustomFieldDefinition` N–1 `Tenant` + entity type; `CustomFieldValue` N–1 definition + polymorphic target record.
 - `Suggestion` N–1 `Tenant`, references a target entity + a proposed diff + an approving `User`.
 - `AutomationRule` 1–N `AutomationRun`; a run may produce one `Suggestion` and/or one `Draft` (`resultSuggestionId` / `resultDraftId`, no FK).
@@ -183,10 +254,33 @@ Custom fields: a metadata table (`CustomFieldDefinition`: tenant, entity type, n
 - Every tenant-owned table has `tenant_id` as the first non-PK column, `NOT NULL`, with an FK to `tenants`, and an RLS policy.
 - Prefer normalized relational tables for anything with real structure (pipeline stages, roles); JSONB only for genuinely dynamic/tenant-defined values (custom field values).
 - Migrations via drizzle-kit; never hand-edit generated migration files after they've been applied anywhere.
-- **Two-file migration pattern for a new tenant-owned table:** (1) `npm run db:generate` produces the machine-named `CREATE TABLE` migration + `meta/<n>_snapshot.json` + a `_journal.json` entry; (2) hand-write the next-numbered `<n+1>_<name>_rls.sql` with `ENABLE`/`FORCE ROW LEVEL SECURITY` + `CREATE POLICY "tenant_isolation" ON <t> USING ("tenant_id"::text = current_setting('app.tenant_id', true))`, and **manually append its `_journal.json` entry** (`idx`+1, `when`+1ms, `tag` = filename without `.sql`, `breakpoints: true`; no snapshot json for the hand-written file). No GRANTs needed — default privileges on `erp_app` cover new tables. Examples: `0018`+`0019`, `0020`+`0021`, `0022`+`0023`.
-- Soft-delete vs hard-delete: default to soft-delete (`deleted_at`) for customer-facing records (accounts, opportunities, quotes) since audit history matters here; hard-delete is fine for ephemeral/derived data (e.g. `quote_line_items` — they're components of their parent quote, not independently meaningful records).
-- Money columns are `numeric(12,2)` (exact, not `float`/`double`), stored and passed across the wire as decimal strings (e.g. `"19.99"`). Never do arithmetic on them via `parseFloat`/JS `number` multiplication — convert to integer cents first (see `lib/services/quote.ts`'s `priceToCents`/`centsToPrice`), do the arithmetic in cents, convert back. This is what makes financial calculations actually deterministic per §9, not just "not literally calling an LLM."
-- Line items that reference a catalog record with a price (e.g. `quote_line_items.unitPrice` against `products.unitPrice`) snapshot the price at the time the line item is created rather than joining live — editing a product's catalog price must never retroactively change the total on an existing quote.
+- **Two-file migration pattern for a new tenant-owned table:** (1) `npm run db:generate` (or
+  `npx dotenv -e .env.local -- drizzle-kit generate --name=<name>`) produces the `CREATE TABLE`
+  migration + `meta/<n>_snapshot.json` + a `_journal.json` entry; (2) hand-write the next-numbered
+  `<n+1>_<name>_rls.sql` with `ENABLE`/`FORCE ROW LEVEL SECURITY` + `CREATE POLICY
+  "tenant_isolation" ON <t> USING ("tenant_id"::text = current_setting('app.tenant_id', true))`,
+  and **manually append its `_journal.json` entry** (`idx`+1, `when`+1ms, `tag` = filename without
+  `.sql`, `breakpoints: true`; no snapshot json for the hand-written file). No GRANTs needed —
+  default privileges on `erp_app` cover new tables. A pure column-add to an existing table is a
+  generated migration only — no RLS file. Examples: `0018`+`0019` … `0032`+`0033`.
+- Soft-delete vs hard-delete: default to soft-delete (`deleted_at`) for customer-facing records (accounts, opportunities, quotes, orders, shipments) since audit history matters here; hard-delete is fine for ephemeral/derived data (e.g. `quote_line_items`). **Issued fiscal documents are neither** — an `invoices` row has no `deleted_at`: a `draft` hard-deletes, anything `issued` can only be corrected by a credit note.
+- **All money and tax arithmetic lives in `lib/money.ts`** — money is `numeric(12,2)`, quantity
+  `numeric(12,3)`, rates percent strings, all passed across the wire as decimal strings. The
+  module works in **integer BigInt** (cents, thousandths, hundredths-of-a-percent) with explicit
+  half-away-from-zero rounding, so there is no float drift and no 2^53 ceiling. `computeDocumentTotals`
+  is the one document pipeline (discount → line base → per-rate-group tax on the summed base →
+  subtotal/tax → IRPF withholding → total), exhaustively unit-tested with fixed vectors in
+  `lib/money.test.ts`. Never `parseFloat` a money string. (`tsconfig.json` `target` is `ES2020`
+  for BigInt literals; clear `tsconfig.tsbuildinfo` after a tsconfig change or `tsc` serves a
+  stale result.) `lib/services/quote.ts` and `components/money.tsx` were folded onto this module;
+  quote lines now carry a decimal quantity + line discount + cost snapshot (quotes stay ex-tax).
+- **Snapshot, never live-join** (extends the `quote_line_items.unitPrice` rule): order lines
+  freeze the quote's price / discount / tax rate / unit cost; shipment lines freeze the ship-to
+  address; invoice lines freeze the order or shipment line; an issued invoice freezes both
+  parties' legal identity. Editing a source record never mutates a committed downstream one.
+- **Gapless document numbers** (`sequences` + `sequenceService.allocate`) are assigned on the
+  consequential transition (`confirm` → `SO-`, `ship` → `DN-`, `issue` → `INV-`, `rectify` →
+  `REC-`), always **inside that transaction**, so a rollback releases the number.
 
 ## 13. API Conventions
 
@@ -237,6 +331,22 @@ Custom fields: a metadata table (`CustomFieldDefinition`: tenant, entity type, n
 
 - **V1 is complete** as of the 12-step sequence (tooling → auth/tenant → authorization → accounts/contacts → pipeline → leads → opportunities/activities/tasks → products/quotes → won/lost/order stub → custom fields → CSV import → pipeline dashboard), each implemented and tested (Vitest + Playwright) before the next started. All 12 steps have passing Vitest suites, clean `tsc --noEmit`, and passing Playwright specs. A later design-system pass (visual/IA polish, no new capability) and a V1-completeness pass (closed missing update/delete on Account/Product/Contact/Opportunity/Lead/Quote, added Lead un-convert, a minimal `/orders/[id]` page, custom-field value clear + definition rename, search+pagination on Accounts/Leads/Products, app-wide toast/validation feedback, and — closing the one gap that pass had deliberately deferred — a `quote.list` procedure + `/quotes` index page with search/pagination and a sidebar entry) both landed after the original 12 steps — see git history for exact scope.
 - **V2 is in progress** — landed in the working tree (migrations `0018`–`0023`; not all committed yet, so check `git status` / the tree, not just git log). Scope so far: (1) **role-based authorization enforcement** — `sales_manager` role, `roleProcedure`/`managerProcedure`/`adminProcedure`, `requireRole` in services, `requirePage` guard, config surfaces (pipeline, custom fields, products, automation, guided setup) moved to manager+; (2) the **`Suggestion` approval primitive** (`/suggestions` inbox, sidebar pending-count badge); (3) the **AI setup wizard** (`/setup`); (4) **AI drafting** — opportunity/account summaries + follow-up emails (assist panel on detail pages); (5) **outbound email via Resend** (`email_messages` audit); (6) **declarative automation** — rules + cron-driven runner (`/settings/automation`, `vercel.json` cron). `tsc --noEmit` is clean; each area has Vitest suites (`lib/services/*.test.ts`, `lib/ai/*.test.ts`, `lib/trpc/routers/rbac.test.ts`) and Playwright specs (`e2e/rbac.spec.ts`, `suggestions.spec.ts`, `setup-wizard.spec.ts`, `opportunity-assist.spec.ts`). `docs/WALKTHROUGH.md` still describes V1 only and lags this.
+- **ERP fulfilment & billing expansion is COMPLETE** — landed in the working tree (migrations
+  `0024`–`0035`, not yet committed — check `git status` / the tree). Six milestones, each
+  schema+RLS → service → tRPC → tests → UI: (0) Foundations — `lib/money.ts`, `sequences`,
+  `tenant_settings`, `audit_log_entries`, `warehouses`; (1) Order aggregate — real lines / status
+  / totals, `SO-`, standalone entry; (2) Inventory — multi-warehouse levels + append-only ledger,
+  reserve on confirm; (3) Shipping — `Shipment` / `DN-`, `shipped` draws down stock; (4) Invoicing
+  — `INV-` / `REC-`, per-VAT-rate + IRPF, `Payment` with allocations, returns → credit note; (5)
+  Reports — AR aging / stock valuation / margin / sales-by-VAT-rate (deterministic SQL). All
+  non-UI cores plus the `@react-pdf/renderer` invoice/credit-note/delivery-note PDF
+  (`lib/documents/`, `app/api/documents/[type]/[id]/pdf`), `emailService.sendDocument` /
+  `sendShipmentNotification`, and the full UI (`/orders` `/inventory` `/shipments` `/invoices`
+  `/payments` `/reports/*` + `/settings/{company,warehouses}` + product-form ERP fields +
+  quote line discounts + `components/status-badge.tsx` + `components/entity-picker.tsx`) are
+  built and green (Vitest 312, `tsc --noEmit`, `drizzle-kit check`, `next build`). Playwright
+  e2e not yet re-run against the new pages. Full detail + decisions:
+  `.claude/plans/read-the-claude-md-file-lovely-cherny.md`.
 - Before extending V2 or starting V3, check what's actually been built (tables in `lib/db/schema/`, routes in `app/`, routers in `lib/trpc/routers/_app.ts`) rather than assuming from this doc alone, since it can lag the code.
 - When adding a new aggregate (e.g., `Opportunity`), add in this order: Drizzle schema (with `tenant_id` + RLS) → service module → tRPC procedures → (if applicable) AI tool wrapper → UI.
 - Keep this file up to date as decisions change — if an open question below gets answered, move it into the relevant section above and remove it from Open Questions.
@@ -248,7 +358,14 @@ Custom fields: a metadata table (`CustomFieldDefinition`: tenant, entity type, n
 - **V2 — Guided Setup & Assist (in progress):** AI setup wizard proposing pipeline/fields from imported data, the `Suggestion` approval primitive, first deterministic automation rules, AI email/summary drafting, role-based authorization. See §18 for landed scope.
 - **V3 — Operational Agent:** tool-calling agent surfacing at-risk/stale opportunities and drafting recommended actions; durable execution for multi-day approval chains.
 - **V4 — Analytics & Forecasting:** stable metrics layer + NL analytics agent over it, pipeline health/forecasting.
-- **V5 — Expanded Implementation Agent & Integrations:** deeper "connect existing systems," more autonomous onboarding from arbitrary docs/CRMs, integrations beyond CSV/email, inventory/order completion. This is the full "self-implementing ERP" vision — only attempt once V1–V4 have proven the config model and AI-trust pattern on real customers.
+- **V5 — Expanded Implementation Agent & Integrations:** deeper "connect existing systems," more autonomous onboarding from arbitrary docs/CRMs, integrations beyond CSV/email. This is the full "self-implementing ERP" vision — only attempt once V1–V4 have proven the config model and AI-trust pattern on real customers.
+
+**Note:** the post-CRM **ERP fulfilment & billing chain** (orders → inventory → shipping →
+invoicing → reports, built for Spanish/EU fiscal compliance) was pulled forward and is landing now
+as its own six-milestone track (§18) rather than waiting for V5 — it's deterministic
+system-of-record work with no new AI surface. Carrier APIs, Verifactu/SII real-time reporting,
+multi-currency, lot/serial traceability, purchase orders, a valuation engine (FIFO / moving
+average) and price lists remain explicitly out of scope for it.
 
 ## 20. Open Questions (unresolved — do not assume an answer)
 

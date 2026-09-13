@@ -13,14 +13,129 @@ import { Pager } from "@/components/pager";
 import { QueryError } from "@/components/query-error";
 import { SearchInput } from "@/components/search-input";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 
-function parsePrice(raw: string): number | null {
-  const price = Number(raw);
-  if (raw.trim() === "" || Number.isNaN(price) || price < 0) return null;
-  return Math.round(price * 100) / 100;
+const UNITS = ["unit", "kg", "g", "l", "ml", "m", "cm", "m2", "m3", "hour", "box", "pallet"] as const;
+
+function parseMoney(raw: string): number | null {
+  if (raw.trim() === "") return null;
+  const n = Number(raw);
+  if (Number.isNaN(n) || n < 0) return null;
+  return Math.round(n * 100) / 100;
+}
+
+type Fields = {
+  name: string;
+  sku: string;
+  unitPrice: string;
+  unitOfMeasure: (typeof UNITS)[number];
+  costPrice: string;
+  taxRatePercent: string;
+  tracksInventory: boolean;
+};
+
+const EMPTY: Fields = {
+  name: "",
+  sku: "",
+  unitPrice: "",
+  unitOfMeasure: "unit",
+  costPrice: "",
+  taxRatePercent: "",
+  tracksInventory: true,
+};
+
+function toMutationInput(f: Fields) {
+  const unitPrice = parseMoney(f.unitPrice);
+  if (!f.name.trim() || unitPrice === null) return null;
+  return {
+    name: f.name.trim(),
+    sku: f.sku.trim() || undefined,
+    unitPrice,
+    unitOfMeasure: f.unitOfMeasure,
+    costPrice: f.costPrice.trim() === "" ? null : parseMoney(f.costPrice) ?? undefined,
+    taxRatePercent: f.taxRatePercent.trim() === "" ? null : Number(f.taxRatePercent),
+    tracksInventory: f.tracksInventory,
+  };
+}
+
+function ProductFields({ value, onChange, idPrefix }: { value: Fields; onChange: (f: Fields) => void; idPrefix: string }) {
+  const set = <K extends keyof Fields>(key: K, v: Fields[K]) => onChange({ ...value, [key]: v });
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      <div className="flex flex-col gap-1.5 sm:col-span-2">
+        <Label htmlFor={`${idPrefix}-name`}>Name</Label>
+        <Input id={`${idPrefix}-name`} value={value.name} onChange={(e) => set("name", e.target.value)} />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor={`${idPrefix}-sku`}>SKU</Label>
+        <Input id={`${idPrefix}-sku`} value={value.sku} onChange={(e) => set("sku", e.target.value)} />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor={`${idPrefix}-unit`}>Unit</Label>
+        <Select value={value.unitOfMeasure} onValueChange={(v) => set("unitOfMeasure", v as (typeof UNITS)[number])}>
+          <SelectTrigger id={`${idPrefix}-unit`} className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {UNITS.map((u) => (
+              <SelectItem key={u} value={u}>
+                {u}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor={`${idPrefix}-price`}>Unit price</Label>
+        <Input
+          id={`${idPrefix}-price`}
+          type="number"
+          min="0"
+          step="0.01"
+          value={value.unitPrice}
+          onChange={(e) => set("unitPrice", e.target.value)}
+        />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor={`${idPrefix}-cost`}>Cost price</Label>
+        <Input
+          id={`${idPrefix}-cost`}
+          type="number"
+          min="0"
+          step="0.01"
+          value={value.costPrice}
+          onChange={(e) => set("costPrice", e.target.value)}
+        />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor={`${idPrefix}-vat`}>VAT rate %</Label>
+        <Input
+          id={`${idPrefix}-vat`}
+          type="number"
+          min="0"
+          max="100"
+          step="0.01"
+          placeholder="Company default"
+          value={value.taxRatePercent}
+          onChange={(e) => set("taxRatePercent", e.target.value)}
+        />
+      </div>
+      <label className="flex items-center gap-2 text-sm text-foreground sm:col-span-2">
+        <Checkbox checked={value.tracksInventory} onCheckedChange={(c) => set("tracksInventory", c === true)} />
+        Track stock levels for this product
+      </label>
+    </div>
+  );
 }
 
 export function ProductsList({ canManage }: { canManage: boolean }) {
@@ -33,6 +148,7 @@ export function ProductsList({ canManage }: { canManage: boolean }) {
     onSuccess: () => {
       utils.product.list.invalidate();
       toast.success("Product created");
+      setCreate(EMPTY);
     },
     onError: (error) => toast.error(error.message),
   });
@@ -52,12 +168,10 @@ export function ProductsList({ canManage }: { canManage: boolean }) {
     onError: (error) => toast.error(error.message),
   });
 
-  const [name, setName] = useState("");
-  const [unitPrice, setUnitPrice] = useState("");
+  const [create, setCreate] = useState<Fields>(EMPTY);
   const [formError, setFormError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editName, setEditName] = useState("");
-  const [editPrice, setEditPrice] = useState("");
+  const [edit, setEdit] = useState<Fields>(EMPTY);
   const [editError, setEditError] = useState<string | null>(null);
 
   return (
@@ -69,52 +183,28 @@ export function ProductsList({ canManage }: { canManage: boolean }) {
         </p>
       )}
       {canManage && (
-      <form
-        className="flex items-start gap-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          const price = parsePrice(unitPrice);
-          if (!name.trim() || price === null) {
-            setFormError("Enter a name and a valid non-negative price.");
-            return;
-          }
-          setFormError(null);
-          createProduct.mutate({ name, unitPrice: price });
-          setName("");
-          setUnitPrice("");
-        }}
-      >
-        <div className="flex flex-1 flex-col gap-1.5">
-          <Label htmlFor="product-name">Name</Label>
-          <Input
-            id="product-name"
-            value={name}
-            onChange={(e) => {
-              setName(e.target.value);
-              setFormError(null);
-            }}
-          />
-        </div>
-        <div className="flex w-32 flex-col gap-1.5">
-          <Label htmlFor="product-unit-price">Unit price</Label>
-          <Input
-            id="product-unit-price"
-            type="number"
-            min="0"
-            step="0.01"
-            value={unitPrice}
-            onChange={(e) => {
-              setUnitPrice(e.target.value);
-              setFormError(null);
-            }}
-          />
-        </div>
-        <Button type="submit" className="mt-[26px]" disabled={createProduct.isPending}>
-          Create product
-        </Button>
-      </form>
+        <form
+          className="flex flex-col gap-3 rounded-md border p-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const input = toMutationInput(create);
+            if (!input) {
+              setFormError("Enter a name and a valid non-negative price.");
+              return;
+            }
+            setFormError(null);
+            createProduct.mutate(input);
+          }}
+        >
+          <ProductFields value={create} onChange={setCreate} idPrefix="product" />
+          <div className="flex items-center gap-3">
+            <Button type="submit" disabled={createProduct.isPending}>
+              Create product
+            </Button>
+            <FieldError message={formError} />
+          </div>
+        </form>
       )}
-      {canManage && <FieldError message={formError} />}
 
       <SearchInput
         value={search}
@@ -146,76 +236,72 @@ export function ProductsList({ canManage }: { canManage: boolean }) {
         <ul className="flex flex-col divide-y rounded-md border">
           {products.data.items.map((product) => (
             <li key={product.id} className="flex items-center justify-between px-3 py-2.5 text-sm">
-              <span className="text-foreground">{product.name}</span>
+              <div className="flex flex-col">
+                <span className="text-foreground">{product.name}</span>
+                <span className="text-xs text-muted-foreground">
+                  {product.sku ? `${product.sku} · ` : ""}
+                  per {product.unitOfMeasure}
+                  {product.tracksInventory ? "" : " · not stocked"}
+                </span>
+              </div>
               <div className="flex items-center gap-3">
                 <Money value={product.unitPrice} className="text-muted-foreground" />
                 {canManage && (
-                <div className="flex shrink-0 gap-1">
-                  <EditDialog
-                    trigger={
-                      <Button type="button" variant="ghost" size="icon-sm" aria-label={`Edit ${product.name}`}>
-                        <Pencil />
-                      </Button>
-                    }
-                    title="Edit product"
-                    open={editingId === product.id}
-                    onOpenChange={(open) => {
-                      setEditingId(open ? product.id : null);
-                      if (open) {
-                        setEditName(product.name);
-                        setEditPrice(product.unitPrice);
-                        setEditError(null);
+                  <div className="flex shrink-0 gap-1">
+                    <EditDialog
+                      trigger={
+                        <Button type="button" variant="ghost" size="icon-sm" aria-label={`Edit ${product.name}`}>
+                          <Pencil />
+                        </Button>
                       }
-                    }}
-                    pending={updateProduct.isPending}
-                    onSubmit={() => {
-                      const price = parsePrice(editPrice);
-                      if (!editName.trim() || price === null) {
-                        setEditError("Enter a name and a valid non-negative price.");
-                        return;
+                      title="Edit product"
+                      open={editingId === product.id}
+                      onOpenChange={(open) => {
+                        setEditingId(open ? product.id : null);
+                        if (open) {
+                          setEdit({
+                            name: product.name,
+                            sku: product.sku ?? "",
+                            unitPrice: product.unitPrice,
+                            unitOfMeasure: product.unitOfMeasure,
+                            costPrice: product.costPrice ?? "",
+                            taxRatePercent: product.taxRatePercent ?? "",
+                            tracksInventory: product.tracksInventory,
+                          });
+                          setEditError(null);
+                        }
+                      }}
+                      pending={updateProduct.isPending}
+                      onSubmit={() => {
+                        const input = toMutationInput(edit);
+                        if (!input) {
+                          setEditError("Enter a name and a valid non-negative price.");
+                          return;
+                        }
+                        updateProduct.mutate({ id: product.id, ...input });
+                      }}
+                    >
+                      <ProductFields value={edit} onChange={setEdit} idPrefix={`edit-${product.id}`} />
+                      <FieldError message={editError} />
+                    </EditDialog>
+                    <DeleteConfirmDialog
+                      trigger={
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Delete ${product.name}`}
+                          className="text-destructive hover:text-destructive"
+                        >
+                          <Trash2 />
+                        </Button>
                       }
-                      updateProduct.mutate({ id: product.id, name: editName, unitPrice: price });
-                    }}
-                  >
-                    <div className="flex flex-col gap-1.5">
-                      <Label htmlFor={`edit-product-name-${product.id}`}>Name</Label>
-                      <Input
-                        id={`edit-product-name-${product.id}`}
-                        value={editName}
-                        onChange={(e) => setEditName(e.target.value)}
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                      <Label htmlFor={`edit-product-price-${product.id}`}>Unit price</Label>
-                      <Input
-                        id={`edit-product-price-${product.id}`}
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={editPrice}
-                        onChange={(e) => setEditPrice(e.target.value)}
-                      />
-                    </div>
-                    <FieldError message={editError} />
-                  </EditDialog>
-                  <DeleteConfirmDialog
-                    trigger={
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`Delete ${product.name}`}
-                        className="text-destructive hover:text-destructive"
-                      >
-                        <Trash2 />
-                      </Button>
-                    }
-                    title={`Delete "${product.name}"?`}
-                    description="This product will be removed from your active list. Existing quotes referencing it keep their snapshot price."
-                    pending={deleteProduct.isPending}
-                    onConfirm={() => deleteProduct.mutate({ id: product.id })}
-                  />
-                </div>
+                      title={`Delete "${product.name}"?`}
+                      description="This product will be removed from your active list. Existing quotes referencing it keep their snapshot price."
+                      pending={deleteProduct.isPending}
+                      onConfirm={() => deleteProduct.mutate({ id: product.id })}
+                    />
+                  </div>
                 )}
               </div>
             </li>

@@ -15,6 +15,14 @@ import {
   SlidersHorizontal,
   Wand2,
   Zap,
+  ShoppingCart,
+  Boxes,
+  Truck,
+  Receipt,
+  Banknote,
+  BarChart3,
+  Building2,
+  Warehouse,
   type LucideIcon,
 } from "lucide-react";
 import type { MembershipRole } from "@/lib/db/schema/membership";
@@ -53,7 +61,28 @@ const primaryNav: NavItem[] = [
   { href: "/import", label: "Import", icon: FileUp },
 ];
 
+const operationsNav: NavItem[] = [
+  { href: "/orders", label: "Orders", icon: ShoppingCart },
+  { href: "/inventory", label: "Inventory", icon: Boxes },
+  { href: "/shipments", label: "Shipments", icon: Truck },
+  { href: "/invoices", label: "Invoices", icon: Receipt },
+  { href: "/payments", label: "Payments", icon: Banknote },
+  { href: "/reports", label: "Reports", icon: BarChart3, allowedRoles: ["admin", "sales_manager"] },
+];
+
 const settingsNav: NavItem[] = [
+  {
+    href: "/settings/company",
+    label: "Company",
+    icon: Building2,
+    allowedRoles: ["admin", "sales_manager"],
+  },
+  {
+    href: "/settings/warehouses",
+    label: "Warehouses",
+    icon: Warehouse,
+    allowedRoles: ["admin", "sales_manager"],
+  },
   {
     href: "/setup",
     label: "Guided setup",
@@ -154,6 +183,16 @@ export function AppSidebar({ role }: { role: MembershipRole }) {
           <SidebarGroupContent>
             <SidebarMenu>
               {primaryNav.map((item) => (
+                <SidebarMenuItem key={item.href}>{renderItem(item)}</SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+        <SidebarGroup>
+          <SidebarGroupLabel>Operations</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {operationsNav.map((item) => (
                 <SidebarMenuItem key={item.href}>{renderItem(item)}</SidebarMenuItem>
               ))}
             </SidebarMenu>

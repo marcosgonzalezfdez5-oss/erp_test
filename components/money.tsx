@@ -1,3 +1,4 @@
+import { sumAmounts } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
 /**
@@ -22,24 +23,7 @@ export function Money({ value, className }: { value: string; className?: string 
   return <span className={cn("font-mono tabular-nums", className)}>{formatMoney(value)}</span>;
 }
 
-function toCents(value: string): number {
-  const trimmed = value.trim();
-  const negative = trimmed.startsWith("-");
-  const unsigned = trimmed.replace(/^-/, "");
-  const [wholeRaw, fractionRaw = ""] = unsigned.split(".");
-  const cents = Number(wholeRaw || "0") * 100 + Number((fractionRaw + "00").slice(0, 2));
-  return negative ? -cents : cents;
-}
-
-function fromCents(cents: number): string {
-  const negative = cents < 0;
-  const abs = Math.abs(cents);
-  const whole = Math.floor(abs / 100);
-  const fraction = abs % 100;
-  return `${negative ? "-" : ""}${whole}.${String(fraction).padStart(2, "0")}`;
-}
-
-/** Sums numeric(12,2) decimal strings in integer cents (CLAUDE.md §12) and returns a decimal string. */
+/** Sums numeric(12,2) decimal strings exactly (CLAUDE.md §12) and returns a decimal string. */
 export function sumMoney(values: string[]): string {
-  return fromCents(values.reduce((total, value) => total + toCents(value), 0));
+  return sumAmounts(values);
 }

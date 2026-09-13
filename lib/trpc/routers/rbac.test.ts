@@ -86,6 +86,65 @@ describe("appRouter mutations are role-gated", () => {
       appRouter
         .createCaller({ session: session("sales_rep") })
         .product.delete({ id: "33333333-3333-3333-3333-333333333333" })],
+    ["tenantSettings.update", () =>
+      appRouter.createCaller({ session: session("sales_rep") }).tenantSettings.update({ legalName: "X" })],
+    ["warehouse.create", () =>
+      appRouter.createCaller({ session: session("sales_rep") }).warehouse.create({ name: "X", code: "X" })],
+    ["warehouse.update", () =>
+      appRouter
+        .createCaller({ session: session("sales_rep") })
+        .warehouse.update({ id: "33333333-3333-3333-3333-333333333333", name: "X" })],
+    ["warehouse.setDefault", () =>
+      appRouter
+        .createCaller({ session: session("sales_rep") })
+        .warehouse.setDefault({ id: "33333333-3333-3333-3333-333333333333" })],
+    ["warehouse.delete", () =>
+      appRouter
+        .createCaller({ session: session("sales_rep") })
+        .warehouse.delete({ id: "33333333-3333-3333-3333-333333333333" })],
+    ["order.cancel", () =>
+      appRouter
+        .createCaller({ session: session("sales_rep") })
+        .order.cancel({ id: "33333333-3333-3333-3333-333333333333" })],
+    ["inventory.receive", () =>
+      appRouter.createCaller({ session: session("sales_rep") }).inventory.receive({
+        productId: "33333333-3333-3333-3333-333333333333",
+        warehouseId: "44444444-4444-4444-4444-444444444444",
+        quantity: 1,
+      })],
+    ["inventory.adjust", () =>
+      appRouter.createCaller({ session: session("sales_rep") }).inventory.adjust({
+        productId: "33333333-3333-3333-3333-333333333333",
+        warehouseId: "44444444-4444-4444-4444-444444444444",
+        newOnHand: 0,
+        note: "x",
+      })],
+    ["inventory.transfer", () =>
+      appRouter.createCaller({ session: session("sales_rep") }).inventory.transfer({
+        productId: "33333333-3333-3333-3333-333333333333",
+        fromWarehouseId: "44444444-4444-4444-4444-444444444444",
+        toWarehouseId: "55555555-5555-5555-5555-555555555555",
+        quantity: 1,
+      })],
+    ["invoice.rectify", () =>
+      appRouter
+        .createCaller({ session: session("sales_rep") })
+        .invoice.rectify({ id: "33333333-3333-3333-3333-333333333333", reason: "R1" })],
+    ["payment.delete", () =>
+      appRouter
+        .createCaller({ session: session("sales_rep") })
+        .payment.delete({ id: "33333333-3333-3333-3333-333333333333" })],
+    ["return.record", () =>
+      appRouter.createCaller({ session: session("sales_rep") }).return.record({
+        shipmentId: "33333333-3333-3333-3333-333333333333",
+        lines: [{ shipmentLineItemId: "44444444-4444-4444-4444-444444444444", quantity: 1 }],
+      })],
+    ["report.arAging", () => appRouter.createCaller({ session: session("sales_rep") }).report.arAging()],
+    ["report.stockValuation", () =>
+      appRouter.createCaller({ session: session("sales_rep") }).report.stockValuation()],
+    ["report.margin", () => appRouter.createCaller({ session: session("sales_rep") }).report.margin()],
+    ["report.salesByTaxRate", () =>
+      appRouter.createCaller({ session: session("sales_rep") }).report.salesByTaxRate()],
   ];
 
   it.each(gated)("%s rejects sales_rep with FORBIDDEN (before any DB access)", async (_name, call) => {

@@ -3,9 +3,9 @@ import { and, asc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { opportunities } from "@/lib/db/schema/opportunity";
 import { pipelineStages } from "@/lib/db/schema/pipeline-stage";
-import { orders } from "@/lib/db/schema/order";
 import { withTenantContext } from "@/lib/db/tenant-context";
 import { dispatchTrigger } from "@/lib/automation/triggers";
+import { createOrderFromQuote } from "./order";
 
 export function listOpportunities(tenantId: string) {
   return withTenantContext(tenantId, (tx) =>
@@ -86,13 +86,11 @@ export async function moveOpportunityToStage(tenantId: string, input: z.infer<ty
       throw new TRPCError({ code: "NOT_FOUND", message: "Opportunity not found" });
     }
 
-    // Moving into a "won" stage creates the stub order exactly once — the
-    // unique constraint on orders.opportunityId makes re-triggering (moving
-    // to won again, or calling this repeatedly) a no-op rather than a duplicate.
+    // Moving into a "won" stage creates a draft order exactly once, snapshotting
+    // the opportunity's latest quote (CLAUDE.md ERP plan, Milestone 1).
+    // createOrderFromQuote is idempotent, so re-triggering is a no-op.
     if (stage.kind === "won") {
-      await tx.insert(orders).values({ tenantId, opportunityId: row.id }).onConflictDoNothing({
-        target: orders.opportunityId,
-      });
+      await createOrderFromQuote(tx, tenantId, { opportunityId: row.id, accountId: row.accountId });
     }
 
     return { opportunity: row, stageKind: stage.kind };

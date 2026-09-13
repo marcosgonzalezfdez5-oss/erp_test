@@ -17,6 +17,20 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
+const MAX_QTY = 1_000_000;
+
+function validQty(value: string): number | null {
+  const n = Number(value);
+  if (Number.isNaN(n) || n <= 0 || n > MAX_QTY) return null;
+  return n;
+}
+
+function validDiscount(value: string): number | null {
+  const n = Number(value);
+  if (Number.isNaN(n) || n < 0 || n > 100) return null;
+  return n;
+}
+
 export function QuoteDetail({ quoteId }: { quoteId: string }) {
   const router = useRouter();
   const utils = trpc.useUtils();
@@ -38,15 +52,15 @@ export function QuoteDetail({ quoteId }: { quoteId: string }) {
     },
     onError: (error) => toast.error(error.message),
   });
-  const updateQuantity = trpc.quote.updateLineItemQuantity.useMutation({
+  const updateLine = trpc.quote.updateLineItemQuantity.useMutation({
     onSuccess: (updated) => {
       utils.quote.get.invalidate({ id: quoteId });
-      setEditingQuantities((prev) => {
+      setEdits((prev) => {
         const next = { ...prev };
         delete next[updated.id];
         return next;
       });
-      toast.success("Quantity updated");
+      toast.success("Line updated");
     },
     onError: (error) => toast.error(error.message),
   });
@@ -60,7 +74,8 @@ export function QuoteDetail({ quoteId }: { quoteId: string }) {
 
   const [productId, setProductId] = useState("");
   const [quantity, setQuantity] = useState("1");
-  const [editingQuantities, setEditingQuantities] = useState<Record<string, string>>({});
+  const [discount, setDiscount] = useState("0");
+  const [edits, setEdits] = useState<Record<string, { quantity?: string; discount?: string }>>({});
 
   if (quote.isLoading) {
     return (
@@ -104,80 +119,113 @@ export function QuoteDetail({ quoteId }: { quoteId: string }) {
       {quote.data.lineItems.length === 0 ? (
         <EmptyState title="No line items yet" description="Add a product below to start building this quote." />
       ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Product</TableHead>
-              <TableHead>Qty</TableHead>
-              <TableHead>Unit price</TableHead>
-              <TableHead>Line total</TableHead>
-              <TableHead />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {quote.data.lineItems.map((item) => {
-              const draft = editingQuantities[item.id];
-              const isDirty = draft !== undefined && draft !== String(item.quantity);
-              return (
-                <TableRow key={item.id}>
-                  <TableCell>{item.productName}</TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1">
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Product</TableHead>
+                <TableHead className="w-24">Qty</TableHead>
+                <TableHead className="w-24">Disc. %</TableHead>
+                <TableHead className="text-right">Unit price</TableHead>
+                <TableHead className="text-right">Line total</TableHead>
+                <TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {quote.data.lineItems.map((item) => {
+                const qty = String(Number(item.quantity));
+                const disc = String(Number(item.discountPercent));
+                const edit = edits[item.id] ?? {};
+                const qtyValue = edit.quantity ?? qty;
+                const discValue = edit.discount ?? disc;
+                const isDirty = qtyValue !== qty || discValue !== disc;
+                const discounted = Number(item.discountPercent) > 0;
+                return (
+                  <TableRow key={item.id}>
+                    <TableCell>{item.productName}</TableCell>
+                    <TableCell>
                       <Input
                         type="number"
-                        min="1"
+                        min="0.001"
                         max="1000000"
-                        step="1"
-                        className="w-16"
+                        step="0.001"
+                        className="w-20"
                         aria-label={`Quantity for ${item.productName}`}
-                        value={draft ?? String(item.quantity)}
+                        value={qtyValue}
                         onChange={(e) =>
-                          setEditingQuantities((prev) => ({ ...prev, [item.id]: e.target.value }))
+                          setEdits((prev) => ({ ...prev, [item.id]: { ...prev[item.id], quantity: e.target.value } }))
                         }
                       />
-                      {isDirty && (
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.01"
+                        className="w-20"
+                        aria-label={`Discount for ${item.productName}`}
+                        value={discValue}
+                        onChange={(e) =>
+                          setEdits((prev) => ({ ...prev, [item.id]: { ...prev[item.id], discount: e.target.value } }))
+                        }
+                      />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {discounted ? (
+                        <span className="flex flex-col items-end">
+                          <Money value={item.netUnitPrice} />
+                          <span className="text-xs text-muted-foreground line-through">{formatMoney(item.unitPrice)}</span>
+                        </span>
+                      ) : (
+                        <Money value={item.unitPrice} />
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Money value={item.lineTotal} />
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1">
+                        {isDirty && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            disabled={updateLine.isPending}
+                            onClick={() => {
+                              const q = validQty(qtyValue);
+                              const d = validDiscount(discValue);
+                              if (q === null) {
+                                toast.error("Quantity must be between 0 and 1,000,000.");
+                                return;
+                              }
+                              if (d === null) {
+                                toast.error("Discount must be between 0 and 100.");
+                                return;
+                              }
+                              updateLine.mutate({ id: item.id, quantity: q, discountPercent: d });
+                            }}
+                          >
+                            Save
+                          </Button>
+                        )}
                         <Button
                           type="button"
                           variant="ghost"
                           size="sm"
-                          disabled={updateQuantity.isPending}
-                          onClick={() => {
-                            const parsed = Number(draft);
-                            if (!Number.isInteger(parsed) || parsed < 1) return;
-                            if (parsed > 1_000_000) {
-                              toast.error("Quantity can't exceed 1,000,000.");
-                              return;
-                            }
-                            updateQuantity.mutate({ id: item.id, quantity: parsed });
-                          }}
+                          aria-label={`Remove ${item.productName}`}
+                          onClick={() => removeLineItem.mutate({ id: item.id })}
                         >
-                          Save
+                          Remove
                         </Button>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Money value={item.unitPrice} />
-                  </TableCell>
-                  <TableCell>
-                    <Money value={item.lineTotal} />
-                  </TableCell>
-                  <TableCell>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      aria-label={`Remove ${item.productName}`}
-                      onClick={() => removeLineItem.mutate({ id: item.id })}
-                    >
-                      Remove
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
       )}
 
       <p className="text-sm font-medium text-foreground">
@@ -188,20 +236,25 @@ export function QuoteDetail({ quoteId }: { quoteId: string }) {
       </p>
 
       <form
-        className="flex items-end gap-2"
+        className="flex flex-wrap items-end gap-2"
         onSubmit={(e) => {
           e.preventDefault();
-          const parsedQuantity = Number(quantity);
-          if (!productId || !Number.isInteger(parsedQuantity) || parsedQuantity < 1) return;
-          if (parsedQuantity > 1_000_000) {
-            toast.error("Quantity can't exceed 1,000,000.");
+          const q = validQty(quantity);
+          const d = validDiscount(discount);
+          if (!productId || q === null) {
+            if (q === null) toast.error("Quantity must be between 0 and 1,000,000.");
             return;
           }
-          addLineItem.mutate({ quoteId, productId, quantity: parsedQuantity });
+          if (d === null) {
+            toast.error("Discount must be between 0 and 100.");
+            return;
+          }
+          addLineItem.mutate({ quoteId, productId, quantity: q, discountPercent: d });
           setQuantity("1");
+          setDiscount("0");
         }}
       >
-        <div className="flex flex-1 flex-col gap-1.5">
+        <div className="flex min-w-48 flex-1 flex-col gap-1.5">
           <Label htmlFor="quote-product">Product</Label>
           <select
             id="quote-product"
@@ -224,11 +277,23 @@ export function QuoteDetail({ quoteId }: { quoteId: string }) {
           <Input
             id="quote-quantity"
             type="number"
-            min="1"
+            min="0.001"
             max="1000000"
-            step="1"
+            step="0.001"
             value={quantity}
             onChange={(e) => setQuantity(e.target.value)}
+          />
+        </div>
+        <div className="flex w-24 flex-col gap-1.5">
+          <Label htmlFor="quote-discount">Discount %</Label>
+          <Input
+            id="quote-discount"
+            type="number"
+            min="0"
+            max="100"
+            step="0.01"
+            value={discount}
+            onChange={(e) => setDiscount(e.target.value)}
           />
         </div>
         <Button type="submit" disabled={addLineItem.isPending}>

@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { notFound, redirect } from "next/navigation";
 import { isUuid } from "@/lib/is-uuid";
+import { resolveSessionContext } from "@/lib/auth/session";
 import { OrderDetail } from "./order-detail";
 
 export default async function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -13,10 +14,12 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
   if (!isUuid(id)) {
     notFound();
   }
+  const session = await resolveSessionContext();
+  const canManage = session?.role === "admin" || session?.role === "sales_manager";
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col">
-      <OrderDetail orderId={id} />
+    <div className="mx-auto flex w-full max-w-4xl flex-col">
+      <OrderDetail orderId={id} canManage={canManage} />
     </div>
   );
 }
